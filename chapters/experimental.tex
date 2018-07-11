@@ -1,0 +1,514 @@
+In this chapter, we introduce \sloopy{}, which implements the analyses presented in the previous chapters. \sloopy{} was implemented on top of \textsc{Clang}, a C language frontend for the \textsc{LLVM} compiler infrastructure. We first introduce our benchmark setup in \Cref{sec:benchmark_setup}, the remaining sections contain data obtained during empiric evaluation.
+
+\section{Benchmark Setup}
+\label{sec:benchmark_setup}
+
+We consider four benchmarks from different areas for benchmarking:
+
+\begin{description}
+    \item[cBench \cite{cBench}] Collective Benchmark (cBench) is a collection of open-source sequential programs, assembled for use in program and compiler optimization.
+    \item[GNU Core Utilities \cite{coreutils}] The GNU Core Utilities (or coreutils) are a collection of basic userland utilities for the GNU operating system.
+    \item[SPEC CPU2006 \cite{DBLP:journals/sigarch/Henning06}] SPEC CPU is a suite of compute-intensive benchmarks composed from real life applications code. It is used in a wide range of industrial applications and for regression testing of LLVM. SPEC contains benchmarks in a range of programming languages -- we only consider those written in C.
+    \item[M{\"a}lardalen WCET \cite{DBLP:conf/wcet/GustafssonBEL10}] The Mälardalen WCET benchmarks are used in the area of Worst-Case Execution Time (WCET) analysis for experimental evaluation.
+\end{description}
+
+% \todo{efficiency?}
+% \subsection{Hardware Specification}
+
+% Where hardware-related results (such as execution time or memory usage) are given, the results were obtained on a 2 GHz Intel Core i7 processor with 8 GB 1333 MHz DDR3 RAM. Mac OS X 10.9 was used as operating system. While \sloopy{} is capable of explointing concurrency on SMP environments, benchmark results were obtained for sequential analysis, i.e.\ running a single process/thread.
+
+\section{Structural Measures}
+
+\subsection{Natural Loops}
+
+    The following table shows the total number of natural loops $\mathcal{L}$ for each of the benchmarks. Additionally, in some benchmarks we will refer to results obtained from \loopus{}. As \loopus{} runs several LLVM optimization passes (e.g.\ dead code elimination) before its analysis, the reported loops may be a subset $\mathcal{L}^{\loopus} \subseteq \mathcal{L}$.
+
+    \begin{table}[h]
+        \begin{tabular}{lS[table-format=4.0]S[table-format=4.0]S[table-format=5.0]S[table-format=3.0]}\toprule
+            & {cBench} & {coreutils} & {SPEC} & {WCET} \\ \midrule
+            \input{tables/count} \bottomrule
+        \end{tabular}
+    \end{table}
+
+\subsection{Number of Exits}
+    \label{sub:number_of_exits}
+
+    We report the number of exits from loops in our benchmark array: \Cref{tab:stat_Exits} contains statistical parameters, \Crefrange{fig:cBench_exits}{fig:WCET_exits} illustrate the number of exits.
+
+    As proposed in \Cref{ch:intro} for benchmark metrics, we discuss the benchmark parameters:
+
+    \subsubsection{Discussion}
+    As we can observe in \Crefrange{fig:cBench_exits}{fig:WCET_exits}, the number of exits follows a exponential-like distribution. The median is uniformly at $\tilde{x} = 1$ for all benchmarks, and the arithmetic mean ranges from $\bar{x} = 1.1$ (WCET) to $\bar{x} = 1.9$ (coreutils). While the standard deviation seems at an expected value for cBench and coreutils ($s \approx 1.5$), it is clearly rather small for WCET ($s = 0.2$) and rather big for SPEC ($s = 3.9$). The result for WCET is plausible, because all programs in WCET are single path programs and many exits along a single path only make sense to enhance readability or to avoid expensive computation. In fact, all loops in WCET have at most 3 exits. The standard deviation for SPEC is caused by outliers which occur in lexical analysis code in the \texttt{perlbench} and \texttt{gcc} sub-benchmarks. For this use case, a main loop with many exits returning tokens is usual, thus our results are plausible.
+
+    Finally, we also obtained results from \loopus{}, which are also shown in \Crefrange{fig:cBench_exits}{fig:WCET_exits}: The green portion of the bar indicates loops that can be bounded by \loopus{}, while for the red portion of loops it fails to compute. Additionally, we compute the ratio of bounded loops to the total number of loops in each respective subset of the partition, which we refer to as \emph{Loopus performance} and which is plotted in blue. Clearly, \loopus{} is more successful in computing bounds for loops with fewer exits, than for loops with many exits. At the same time, Loopus performance declines slower than the number of exits distribution, and \loopus{} still handles a non-negligible amount of loops with many exits. coreutils contains a single loop with zero exits (i.e., an infinite loop). This loop is in the \texttt{yes} program that repeatedly outputs a string until killed.
+
+    \figbarset{number of exits}{Number of exits}{1}{16.5}
+
+    \stattable{Exits}
+
+    \def \plotcutarrow {->}
+    \figbar{cBench_exits}{3000}
+    \def \plotlessdetail {y}
+    \figbar{coreutils_exits}{600}
+    \figbar{SPEC_exits}{12000}
+    \def \plotcutarrow {-}
+    \figbar{WCET_exits}{260}
+
+\subsection{Slice-based: Number of basic blocks}
+
+    Next, we discuss the slice-based metrics we described in \Cref{sub:slice_based_class}: We compute a program's termination-slice and count the number of basic blocks remaining in the slice, the maximal nesting depth of basic blocks in the slice, and the number of control variables considered during slicing, i.e.\ variables directly or indirectly influencing termination.
+
+    We first consider the number of basic blocks: The statistical parameters given in \Cref{tab:stat_AllLoops.BranchNodes} show a median of $\tilde{x} = 2$ or $\tilde{x} = 3$ (for SPEC), and a mean between $\bar{x} = 3.2$ and $\bar{x} = 6.1$. The median of two basic blocks intuitively makes sense -- these blocks directly correspond to the loop's header and body. The standard deviation is remarkably high for both cBench and SPEC, indicating outliers. These outliers occur across various sub-benchmarks, and we have not found an intuitive explanation.
+
+    As \Crefrange{fig:cBench_AllLoops.BranchNodes}{fig:WCET_AllLoops.BranchNodes} show, the number of basic blocks follows a gamma-like distribution. Loopus performance does not seem to correlate with the number of basic blocks, except for zero basic blocks. In the latter case, the termination slice degenerates into a single block with a self-loop, indicating either an infinite loop or a condition expression not containing any variables (e.g. a parameter-less function call). This is consistent with the significantly decreased Loopus performance we see for this class: either the loop really is an infinite loop, or the function call is an external call (e.g.\ a system call) unmodeled by \loopus{}. For WCET, due to the small number of loops in other classes, we must consider any number of basic blocks other than two as outliers.
+
+    \figbarset{number of basic blocks}{Number of basic blocks}{0}{25.5}
+
+    \stattable{AllLoops.BranchNodes}
+
+    \def \plotcutarrow {->}
+    \figbar{cBench_AllLoops.BranchNodes}{1800}
+    \figbar{coreutils_AllLoops.BranchNodes}{500}
+    \figbar{SPEC_AllLoops.BranchNodes}{7500}
+    \figbar{WCET_AllLoops.BranchNodes}{250}
+
+\subsection{Slice-based: Nesting depth}
+
+Next, we consider the maximal nesting depth of a termination-sliced program (figures in \Cref{tab:stat_AllLoops.BranchDepth}): The median lies at $\tilde{x} = 2$ for SPEC and $\tilde{x} = 1$ for all other benchmarks. The mean is slightly higher than this, ranging from $\bar{x} = 1.7$ for WCET to $\bar{x} = 3.1$ for SPEC. Standard deviation is about $s \approx 4$, except for WCET where $s = 1.8$. Given a low mean $\bar{x}$ and a low standard deviation $s$, we can assume that there are few considerably nested loops in WCET, which is empirically consistent with the fact that WCET only contains single-path programs.
+
+    \Crefrange{fig:cBench_AllLoops.BranchDepth}{fig:WCET_AllLoops.BranchDepth} show the distribution of the maximal nesting depth metric: Again, it follows a gamma-like distribution. Loopus performance slightly decreases with increasing nesting depth, but not as strongly as the nesting depth itself, and also less strongly than we have seen with the number of exits.
+
+    \figbarset{maximal nesting depth}{Maximal nesting depth}{0}{18.5}
+
+    \stattable{AllLoops.BranchDepth}
+
+    \def \plotcutarrow {->}
+    \figbar{cBench_AllLoops.BranchDepth}{1800}
+    \figbar{coreutils_AllLoops.BranchDepth}{500}
+    \figbar{SPEC_AllLoops.BranchDepth}{7500}
+    \def \plotcutarrow {-}
+    \figbar{WCET_AllLoops.BranchDepth}{250}
+
+\subsection{Slice-based: Number of control variables}
+
+    Finally, we consider the number of control variables, i.e.\ the variables directly or indirectly influencing the loop's termination, as determined by termination slicing.
+
+    The statistical parameters summarized in \Cref{tab:stat_AllLoops.ControlVars} show a median $\tilde{x} = 2$ across all benchmarks. Again, this makes sense for condition expressions that contain two variables compared by a relational or equality operator. The arithmetic mean is between $\bar{x} = 3.3$ and $\bar{x} = 3.7$ for cBench, coreutils, and SPEC, and slightly lower at $\bar{x} = 2.1$ for WCET. Similarly, the standard deviation ranges between $s = 4.1$ and $s = 5.3$, except for WCET, where it is at $s = 1.9$.
+
+    \Crefrange{fig:cBench_AllLoops.ControlVars}{fig:WCET_AllLoops.ControlVars} again show a gamma-like distribution for this metric, sometimes degraded to an exponential-like distribution. In the comparison with \loopus{}, we see slightly higher Loopus performance on loops with less than three control variables, afterwards remaining stable at about 60\% for cBench and SPEC, and rapidly dropping for coreutils and WCET.
+
+    \figbarset{number of control variables}{Number of control variables}{0}{25.5}
+
+    \stattable{AllLoops.ControlVars}
+
+    \def \plotcutarrow {->}
+    \figbar{cBench_AllLoops.ControlVars}{1800}
+    \figbar{coreutils_AllLoops.ControlVars}{500}
+    \figbar{SPEC_AllLoops.ControlVars}{7500}
+    \def \plotcutarrow {-}
+    \figbar{WCET_AllLoops.ControlVars}{250}
+
+\section{Syntactically Terminating Loops \& Simple Loops}
+\label{sec:simpleloopschar}
+
+After discussing structural CFG- and slice-based measures in the previous section, we will now have a look at the syntactically terminating loops introduced in \Cref{ch:syntacticproof} and the simple loops from \Cref{ch:simpleloops}. To keep the comparison working, in this section we only consider syntactically bounded loops $\mathcal{L}^{SB}$, the strongest simple loop class $\mathcal{L}^{ST} = \mathcal{L}^{simple(\text{*pit})}$, the weakest simple loop class $\mathcal{L}^{simple(\text{*wxw})}$, and all loops not in any simple loop class $\mathcal{L} \setminus \mathcal{L}^{simple(\text{*wxw})}$. These loops are especially interesting, because those in $\mathcal{L}^{SB}$ can directly be compared with \loopus{} (it should be able to bound all loops in this class), $\mathcal{L}^{simple(\text{*pit})}$ and $\mathcal{L}^{simple(\text{*wxw})}$ represent the range of simple loops, and $\mathcal{L} \setminus \mathcal{L}^{simple(\text{*wxw})}$ shows that non-simple loops are significantly more difficult than the average. A comparison of all simple loop classes based on simple loop constraint transformers is given below in \Cref{sec:eff_transformers}.
+
+\Cref{fig:simple_loops_overview} shows the percentage of loops in each of the listed classes for the respective benchmark: The percentage of loops in $\mathcal{L}^{SB}$ is around 22\%, except for WCET where it is at 44\%. Some 10--15\% more loops are only in $\mathcal{L}^{ST}$, which amounts to about 37\% of all loops, except for WCET (55\%). The weakest simple loop class $\mathcal{L}^{simple(\text{*wxw})}$ additionally contains 26\% more loops on all benchmarks except coreutils, comprising about 65\% of all loops in cBench and SPEC, and 82\% in WCET. For coreutils, the number of simple loops is a bit smaller at 48\% of all loops.
+
+    \pgfplotstableread{tables/simple.dat}\loadedtable
+    \begin{figure}
+        \begin{tikzpicture}
+            \pgfplotsset{width=0.8\linewidth}
+            \pgfplotsset{%
+                single xbar legend/.style={%
+                    legend image code/.code={\draw[##1,/tikz/.cd,bar width=6pt,bar shift=0pt,xbar] plot coordinates {(0.8em,0pt)};},
+                }
+            }
+            \begin{axis}[
+                legend style={at={(0.5,-0.1)},anchor=north},
+                xbar stacked,
+                bar width=0.4,
+                xmin=0,xmax=100,
+                clip=false,
+                ytick=data,
+                yticklabels from table={\loadedtable}{benchmark},
+                point meta=explicit,
+                nodes near coords={\pgfmathprintnumber[fixed, precision=0]{\pgfplotspointmeta}\%},
+                ]
+                \addplot table[x expr=100*(\thisrow{finp}/\thisrow{any}),meta expr=100*(\thisrow{finp}/\thisrow{any}),y expr=-\coordindex] \loadedtable ;
+                \addplot table[x expr=100*(\thisrow{proved}/\thisrow{any}-\thisrow{finp}/\thisrow{any}),meta expr=100*(\thisrow{proved}/\thisrow{any}),y expr=-\coordindex] \loadedtable ;
+                \addplot table[x expr=100*(\thisrow{simple}/\thisrow{any}-\thisrow{proved}/\thisrow{any}),meta expr=100*(\thisrow{simple}/\thisrow{any}),y expr=-\coordindex] \loadedtable ;
+                \addplot table[x expr=100*(\thisrow{any}/\thisrow{any}-\thisrow{simple}/\thisrow{any}),meta expr=100-100*(\thisrow{simple}/\thisrow{any}),y expr=-\coordindex] \loadedtable ;
+                \legend{Syntactically bounded $\mathcal{L}^{SB}$, Syntactically terminating $\mathcal{L}^{ST} = \mathcal{L}^{simple(\text{*pit})}$, Simple $\mathcal{L}^{simple(\text{*wxw})}$, Non-simple $\mathcal{L} \setminus \mathcal{L}^{simple(\text{*wxw})}$}
+            \end{axis}
+        \end{tikzpicture}
+        \caption{Percentage of loops covered by various loop classes in different benchmarks.}
+        \label{fig:simple_loops_overview}
+    \end{figure}
+
+The percentage of loops in $\mathcal{L}^{SB}$ and $\mathcal{L}^{ST}$ is stable across all benchmarks except WCET. This can be explained by the single-path property of WCET that naturally fulfills the strong control flow constraint of syntactically terminating loops.
+Overall, the ratio of simple loops in WCET is consistent with the results of \cite{DBLP:conf/sas/ZulegerGSV11}, where \loopus{} performed a lot better on WCET than on cBench, which suggests -- consistent with our classification -- that WCET is a less-demanding benchmark for automated program analysis.
+
+The small difference between $\mathcal{L}^{simple(\text{*wxw})}$ and $\mathcal{L}^{ST}$ in coreutils can be explained by a significant amount of loops taking the form \mint{c}!while (int i = syscall(c))! where \texttt{syscall} is a system call to the operating system, and \texttt{i} will take a value indicating success of that call.
+
+
+\subsection{Comparison with \loopus{}}
+
+As our central goal is to establish a relation between simple loops and the difficulty of automated program analysis, we now describe how well \loopus{} performs on our selection of loop classes: \Crefrange{fig:cBench_simple_percent}{fig:WCET_simple_percent} show the percentage of loops contained in each of these classes. Bars (1)--(4) are classes with increasingly less restrictive constraints. Bars (5) below the dashed line refer to loops not in any simple loop class, i.e.\ the complement of loops shown under (3). \Crefrange{fig:cBench_simple_bounded}{fig:WCET_simple_bounded} show the percentage of loops in the respective class for which \loopus{} succeeds and fails to compute a symbolic bound. As these are relative numbers, the percentage of positive results is equal to the Loopus performance measure used above.
+
+\lpchart{cBench}
+\lpchart{coreutils}
+\lpchart{SPEC}
+\lpchart{WCET}
+
+\subsubsection{Discussion}
+
+Consistent with our expectation of simple loops, the simpler the investigated loop class, the better \loopus{} performs. This supports our conjecture that given two loop constraints $C_1 \le C_2$, the stronger constraint $C_1$ not only describes a subset of loops, but also that this subset is less difficult for an automated procedure to handle. Additionally, as expected, for any termination proof we obtain in $\mathcal{L}^{SB}$ on benchmarks that \loopus{} was optimized for (cBench and WCET), it also bounds the loop, i.e.\ both \sloopy{} and \loopus{} agree on termination of this class. Random examination of those loops unbounded in $\mathcal{L}^{SB}$ on coreutils and SPEC suggests that this is caused by system calls unmodeled in \loopus{}, and is a good pointer for improvement. As a positive result for \loopus{}, while it performs worst on non-simple loops, it is still successful on about two thirds of these loops, except for coreutils which seems a much harder benchmark.
+
+\section{Effectivity of Simple Loop Constraint Transformers}
+\label{sec:eff_transformers}
+Up until now, we have only considered the strongest and weakest simple loops classes $\mathcal{L}^{ST} = \mathcal{L}^{simple(\text{*pit})}$ and $\mathcal{L}^{simple(\text{*wxw})}$. To evaluate the usefulness of each simple loop class, we now study the \emph{effectivity} of simple loop constraint transformers (SLCTs):
+
+\begin{definition}[Effectivity of simple loop constraint transformers]
+    Given an SLCT $t$, its effectivity $E_t$ on a constraint $C_1$ is the relative increase of loops covered by the obtained constraint $C_2 = t(C_1)$, i.e.\
+    \[ E_t = \frac{ | \mathcal{L}^{simple(C_2)} | - | \mathcal{L}^{simple(C_1)} | }{ | \mathcal{L} | } \qquad \textrm{where } C_2 = t(C_1) \]
+\end{definition}
+
+We tabulate the effectivity of each SLCT $t$ in \Crefrange{tab:transformers_cf1_cf2}{tab:transformers_ex}: The first row for each benchmark lists the percentage of simple loops covered by the stronger constraint $C_1$ given in the respective header column. The second row for each benchmark lists the percentage of simple loops covered by the weaker constraint $C_2$ obtained by applying $t$ to $C_1$. The third row shows the difference between these two percentages, i.e.\ the effectivity $E_t$.
+
+We define a significance level of $E_t \ge 1.5\%$. From our experience, this value serves as a clean cutoff point between transformers that include a considerable amount of additional loops and those that do not. For transformer applications that fulfill this significance criterion, the value of $E_t$ is set in bold in \Crefrange{tab:transformers_cf1_cf2}{tab:transformers_ex}. In summary, we see that for
+
+\begin{description}
+    \item[Proved control flow $\rightarrow$ strong control flow ($cf_1$)] This transformer's effectivity is only significant on cBench for all four of the possible applications, and on SPEC for two of the four applications. Effectivity on well-formed loop classes $(W = \textsf{w})$ is slightly higher than on terminating loop classes $(W = \textsf{t})$.
+\item[Strong control flow $\rightarrow$ weak control flow ($cf_2$)] Effectivity of the $cf_2$ transformer is significant on all benchmarks, and with the exception of coreutils even for a significance level of $E_t \ge 8.8$. Again, effectivity is slightly higher on well-formed loop classes. Effectivity on coreutils is clearly below all other benchmarks.
+    \item[Checking loop-invariance $\rightarrow$ not checking loop-invariance ($inv$)] Effectivity of this trans\-for\-mer is not significant on any benchmarks, with $E_t$ usually ranging from 0 to 0.4, and three cases with slightly higher effectivity (0.8, 1.1, 1.1) on WCET.
+\item[Terminating predicate $\rightarrow$ well-formed predicate ($wf$)] This transformer's effectivity is significant on all benchmarks. Empirically, its effectivity increases with weaker control flow constraints.
+    \item[Single-exit $\rightarrow$ any-exit ($ex$)] Effectivity of $ex$ is as well significant on all benchmarks. Additionally, we measured higher effectivity on well-formed $(W = \textsf{w})$ than on terminating $(T = \textsf{t})$ loops.
+\end{description}
+
+Omitting the empirically insignificant transformers $cf_1$ and $inv$ and replacing $cf_2$ with a (significant) new transformer $cf = cf_2\,\circ\,cf_1$, we can obtain a subset of simple loop classes as illustrated in \Cref{fig:simple_loops_poset_simple}.
+
+\begin{figure}[h]
+    \begin{tikzpicture}[%
+        scale=1.8,
+        block/.style = {rectangle, draw, text width=2.5em, text centered, rounded corners, minimum height=2em, fill=red!60},
+        line/.style = {draw, -latex'}
+        ]	
+
+        \begin{scope}
+            \begin{pgfonlayer}{fg}
+            \begin{scope}[
+                yshift=0,
+                every node/.append style={yslant=\yslant,xslant=\xslant},
+                yslant=\yslant,xslant=\xslant
+                ] 
+                \node[block,fill=red!20,draw=black!50,text=black!50] (1pit) at (1,1) {1pit};
+                \node[block] (1piw) at (2,1) {1piw};
+                \node[block] (1wit) at (1,0) {1wit};
+                \node[block] (1wiw) at (2,0) {1wiw};
+                % edges
+                \path[line,black!50] (1pit) -- (1piw);
+                \path[line] (1wit) -- (1wiw);
+                \path[line] (1piw) -- (1wiw);
+                \path[line,black!50] (1pit) -- (1wit);
+                % frame
+                \draw[gray, dashed, thin] (0.5,-0.5) rectangle (2.5,1.5);
+                % label
+                % \fill[black] (0.1,4) node[right] {any-exit};
+                \coordinate (ac1) at (0.5,-0.5);
+                \coordinate (ac2) at (0.5,1.5);
+                \coordinate (ac3) at (2.5,-0.5);
+                \coordinate (ac4) at (2.5,1.5);
+            \end{scope}
+            \end{pgfonlayer}
+
+            \begin{scope}[
+                yshift=-70,
+                every node/.append style={yslant=\yslant,xslant=\xslant},
+                yslant=\yslant,xslant=\xslant
+                ] 
+                \node[block,text width=3.5em] (afinitep) at (0,0.5) {bounded};
+                \node[block] (pit) at (1,1) {*pit};
+                \node[block] (piw) at (2,1) {*piw};
+                \node[block] (wit) at (1,0) {*wit};
+                \node[block] (wiw) at (2,0) {*wiw};
+                % edges
+                \draw[line] (afinitep) to[out=90,in=240,looseness=1] (pit);
+                \path[line] (pit) -- (piw);
+                \path[line] (wit) -- (wiw);
+                \path[line] (pit) -- (wit);
+                \path[line] (piw) -- (wiw);
+                % frame
+                \draw[gray, dashed, thin] (0.5,-0.5) rectangle (2.5,1.5);
+                % label
+                % \fill[black] (0.1,4) node[right] {single-exit};
+                \coordinate (c1) at (0.5,-0.5);
+                \coordinate (c2) at (0.5,1.5);
+                \coordinate (c3) at (2.5,-0.5);
+                \coordinate (c4) at (2.5,1.5);
+            \end{scope}
+            \begin{pgfonlayer}{bg}
+                % 2 vertical lines for linking agents on the 2 levels
+                \path[line,black!50] (1pit) -- (pit);
+                \path[line] (1piw) -- (piw);
+                \path[line] (1wit) -- (wit);
+                \path[line] (1wiw) -- (wiw);
+            \end{pgfonlayer}
+
+            \draw[gray, dashed, very thin] (ac1) -- (c1);
+            \draw[gray, dashed, very thin] (ac2) -- (c2);
+            \draw[gray, dashed, very thin] (ac3) -- (c3);
+            \draw[gray, dashed, very thin] (ac4) -- (c4);
+        \end{scope}
+        \begin{scope}[xshift=65,yshift=-60]
+            % dimensions
+            \draw[line,dotted] (-3.5,3.25) -- (-1.5,4.25) node [midway, above, sloped] {well-formedness ($wf$)};
+            \draw[line,dotted] (-3.5,3.25) -- (-2,1.85) node [midway, above, sloped] {control flow ($cf$)};
+            \draw[line,dotted] (-3.5,3.25) -- (-3.5,1) node [midway, above, sloped] {number of exits ($ex$)};
+        \end{scope}
+    \end{tikzpicture}
+    \caption{Hasse diagram of the reduced simple loop poset.}
+    \label{fig:simple_loops_poset_simple}
+\end{figure}
+
+\input{tables/transformers}
+
+\section{Nested Loops}
+
+In \Cref{ch:simpleloops} we discussed the use of simple loops to define classes of nested loops influencing each other. We also described classes of amortized loops, that may exhibit non-trivial symbolic bounds. \Cref{tab:nested_loop_classes} shows the number of loops found by our analysis in the respective classes, and \Cref{fig:nested_loop_classes} illustrates the relative occurence of these classes: Clearly, there is a significant amount of influencing and influenced loops across all benchmarks. While amortized loops of type A2 and B are rather uncommon, amortized loops of type A1 occur with a rate of 3--12\%, thus making a rewarding objective for automated bound computation.
+
+\begin{figure}
+\begin{tikzpicture}
+\pgfplotstableread{tables/nested.dat}\loadedtable
+\pgfplotsset{width=0.9\linewidth}
+\begin{axis}[
+    legend style={at={(0.98,0.55)},anchor=east},
+    ytick=data,
+    yticklabels={cBench, coreutils, SPEC, WCET},
+    xbar,
+    xmin=0, xmax=40,
+    y=2.5cm,
+    enlarge y limits={abs=0.5},
+    point meta=explicit,
+    xlabel=Percent of all loops,
+]
+    \addplot table[x expr=100*(\thisrow{InfluencesOuter}/\thisrow{ANY}), y expr=-\coordindex, meta expr=100*(\thisrow{InfluencesOuter}/\thisrow{ANY})] \loadedtable ;
+    \addplot table[x expr=100*(\thisrow{InfluencedByInner}/\thisrow{ANY}), y expr=-\coordindex, meta expr=100*(\thisrow{InfluencedByInner}/\thisrow{ANY})] \loadedtable ;
+    \addplot table[x expr=100*(\thisrow{AmortA1}/\thisrow{ANY}), y expr=-\coordindex, meta expr=100*(\thisrow{AmortA1}/\thisrow{ANY})] \loadedtable ;
+    \addplot table[x expr=100*(\thisrow{AmortA2}/\thisrow{ANY}), y expr=-\coordindex, meta expr=100*(\thisrow{AmortA2}/\thisrow{ANY})] \loadedtable ;
+    \addplot table[x expr=100*(\thisrow{AmortB}/\thisrow{ANY}), y expr=-\coordindex, meta expr=100*(\thisrow{AmortB}/\thisrow{ANY})] \loadedtable ;
+    \legend{Influencing, Influenced, Amortized type A1, Amortized type A2, Amortized type B}
+\end{axis}
+\end{tikzpicture}
+    \caption{Nested loop classes.}
+    \label{fig:nested_loop_classes}
+\end{figure}
+
+\begin{table}
+    \begin{tabular}{lS[table-format=5.0]S[table-format=4.0]S[table-format=4.0]S[table-format=4.0]S[table-format=4.0]S[table-format=4.0]}\toprule
+        & {$\mathcal{L}$} & {$\mathcal{L}^{influencing}$} & {$\mathcal{L}^{influenced}$} & {$\mathcal{L}^{AmortA1}$} & {$\mathcal{L}^{AmortA2}$} & {$\mathcal{L}^{AmortB}$} \\ \midrule
+        \input{tables/nested} \bottomrule
+    \end{tabular}
+    \caption{Nested loop classes.}
+    \label{tab:nested_loop_classes}
+\end{table}
+
+\section{Statement Usage}
+
+An important aspect of programming language design is which patterns are actually used by programmers to formulate algorithms. In our case, we analyze which statements are used to express loops from various classes. This is especially interesting as any of the statements in C capable of expressing loops can be equivalently rewritten using one of the others, as illustrated below by the equivalent programs $P$, $Q$, and $R$:
+
+\begin{center}
+\begin{minipage}[t]{.48\linewidth}
+% coreutils-8.21/src/factor.c:726
+\begin{listing}[H]
+\begin{ccode*}{linenos=false}
+for (int j = 0; j < off; j++) {
+  p += primes_diff[i + j];
+}
+\end{ccode*}
+\caption{Example program $P$.}
+\end{listing}
+\begin{listing}[H]
+\begin{ccode*}{linenos=false}
+{
+  int j = 0;
+  while (j < off) {
+    p += primes_diff[i + j];
+    j++;
+  }
+}
+\end{ccode*}
+\caption{Example program $Q$.}
+\end{listing}
+\end{minipage}%
+\hfill%
+\begin{minipage}[t]{.48\linewidth}
+\begin{listing}[H]
+\begin{ccode*}{linenos=false}
+{
+  int j = 0;
+loop:
+  if (! (j < off) )
+    goto afterloop;
+  p += primes_diff[i + j];
+  j++;
+  goto loop;
+}
+afterloop: ;
+\end{ccode*}
+\caption{Example program $R$.}
+\end{listing}
+\end{minipage}
+\end{center}
+
+    To map a natural loop $L$ to a loop statement, we introduce a function $stmt: \mathcal{L} \rightarrow$ \mathset{\texttt{FOR}, \texttt{WHILE}, \texttt{DO}, \texttt{GOTO}, \texttt{UF}}. If $L$'s backedge is induced by an iteration statement (\texttt{for}, \texttt{while}, \texttt{do}), $stmt(L)$ evaluates to \texttt{FOR}, \texttt{WHILE}, and \texttt{DO}, respectively. If the backedge is induced by a \texttt{continue} statement, $stmt(L)$ evaluates to $stmt(M)$, where $M$ is the inner-most loop containing $L$ whose backedge is induced by an iteration statement. If the backedge is induced by a \texttt{goto} statement, then $stmt(L) = \texttt{GOTO}$. In any other case, $stmt(L) = \texttt{UF}$ (\texttt{UF} stands for unstructured flow).
+
+\begin{listing}
+\begin{ccode}
+  goto Header;
+A:
+  b();
+Header:
+  a();
+  goto A;
+\end{ccode}
+\caption{A \texttt{UF} loop.}
+\label{lst:unstr}
+\end{listing}
+
+While the former should all be clear, \texttt{UF} loops are rather uncommon and may require some explanation. We give an example representative of \texttt{UF} loops in our benchmarks in \Cref{lst:unstr}: Flow of control enters the loop at a single location, i.e.\ the label \texttt{Header}. The loop's body is comprised of two function calls \texttt{a()} and \texttt{b()}, after which the the loop continues its next iteration from \texttt{Header}. In other words, control flow from \texttt{b()} to \texttt{Header} forms the loop's backedge, but there is no statement explicitly directing flow of control. Rather, the backedge is caused by normal order of execution of a compound statement.
+
+\subsubsection{Discussion}
+
+\Cref{tab:simple_loops_stmt} and \Cref{fig:simple_loops_stmt} show the occurence of statements determined by $stmt$ in our selection of loop classes: Overall, the \texttt{for} statement is used a lot more than other statements, even though the number varies greatly between more than 80\% of all loops $\mathcal{L}$ (row (4) in the table) for SPEC and WCET and less than 50\% of $\mathcal{L}$ for coreutils. The next-most used statement is \texttt{while}, with an equally wide range from $\approx 10\%$ on WCET to $\approx 47\%$ on coreutils, where \texttt{for} and \texttt{while} statements occur about equally often. \texttt{do} and \texttt{goto} statements make up a minor share of less than 10\% and 2\%, respectively. Loops with unstructured flow (\texttt{UF}) are extremely rare: There are only five specimen in total, one in cBench and four in SPEC.
+
+When we compare the ratio of statements used between different loop classes of the same benchmark, an interesting observation can be made: Regardless of the overall occurence of \texttt{FOR} in $\mathcal{L}$, the simpler the loop class, the higher the percentage of loops expressed using a \texttt{for} statement. At the same time, the less simple a loop, the higher the percentage of \texttt{while}, \texttt{do}, \texttt{goto} statements, and \texttt{UF} loops. This correlation is especially strong for \texttt{do} and \texttt{goto} statements, where virtually no such loops are in $\mathcal{L}^{ST}$. Unstructured flow loops seem even less simple, although our sample size is extremely small: all occurances of \texttt{UF} loops are non-simple, i.e.\ in $\mathcal{L} \setminus \mathcal{L}^{simple(\text{*wxw})}$.
+
+\begin{table}
+    \begin{tabular}{lHS[table-format=5.0]S[table-format=2.1]@{\hskip 0.8cm}S[table-format=4.0]S[table-format=2.1]@{\hskip 0.8cm}S[table-format=3.0]S[table-format=1.1]@{\hskip 0.8cm}S[table-format=2.0]S[table-format=1.0]@{\hskip 0.8cm}S[table-format=1.0]S[table-format=1.1]}\toprule
+        & & \multicolumn{2}{c}{{\hskip -0.6cm}\texttt{FOR}} & \multicolumn{2}{c}{{\hskip -0.8cm}\texttt{WHILE}} & \multicolumn{2}{c}{{\hskip -0.8cm}\texttt{DO}} & \multicolumn{2}{c}{{\hskip -0.8cm}\texttt{GOTO}} & \multicolumn{2}{c}{{\hskip -0.4cm}\texttt{UF}} \\
+        & & {n} & {\%} & {n} & {\%} & {n} & {\%} & {n} & {\%} & {n} & {\%} \\ \midrule
+        \input{tables/stmt} \bottomrule
+    \end{tabular}
+    \caption{C statements used to express loops.}
+    % \caption{C statements used to express loops from loop classes (1) $\mathcal{L}^{SB}$, (2) $\mathcal{L}^{ST}$, (3) $\mathcal{L}^{simple(\text{*wxw})}$, (4) $\mathcal{L}$, and (5) $\mathcal{L} \setminus \mathcal{L}^{simple(\text{*wxw})}$.}
+    \label{tab:simple_loops_stmt}
+\end{table}
+
+\begin{landscape}
+    \pgfplotstableread{tables/stmt.dat}\loadedtable
+    \begin{figure}
+        \begin{tikzpicture}
+            \pgfplotsset{width=0.95\linewidth,height=0.9\textheight}
+            \pgfplotsset{%
+                single xbar legend/.style={%
+                    legend image code/.code={\draw[##1,/tikz/.cd,bar width=6pt,bar shift=0pt,xbar] plot coordinates {(0.8em,0pt)};},
+                }
+            }
+            \begin{axis}[
+                legend columns=5,
+                legend style={at={(0.5,-0.05)},anchor=north},
+                xbar stacked,
+                bar width=0.7,
+                xmin=0,xmax=100,
+                clip=false,
+                ytick=data,
+                yticklabels={%
+                    (1), (2), (3), (4), (5),
+                    (1), (2), (3), (4), (5),
+                    (1), (2), (3), (4), (5),
+                    (1), (2), (3), (4), (5),
+                },
+                point meta=explicit,
+                enlarge y limits={abs=1},
+                every node near coord/.style={
+                check for zero/.code={
+                    \pgfkeys{/pgf/fpu=true}
+                    \pgfmathparse{\pgfplotspointmeta-3}
+                    \pgfmathfloatifflags{\pgfmathresult}{-}{
+                    \pgfkeys{/tikz/coordinate}
+                    }{}
+                    \pgfkeys{/pgf/fpu=false}
+                }, check for zero, font=\scriptsize},
+                nodes near coords={\pgfmathprintnumber[fixed, precision=0]{\pgfplotspointmeta}\%},
+                ]
+                \addplot table[x expr=100*(\thisrow{numFOR}/\thisrow{numTOTAL}),meta expr=100*(\thisrow{numFOR}/\thisrow{numTOTAL}),y expr={-\coordindex+fpumod(\coordindex,5)/8}] \loadedtable ;
+                \addplot table[x expr=100*(\thisrow{numWHILE}/\thisrow{numTOTAL}),meta expr=100*(\thisrow{numWHILE}/\thisrow{numTOTAL}),y expr={-\coordindex+fpumod(\coordindex,5)/8}] \loadedtable ;
+                \addplot table[x expr=100*(\thisrow{numDO}/\thisrow{numTOTAL}),meta expr=100*(\thisrow{numDO}/\thisrow{numTOTAL}),y expr={-\coordindex+fpumod(\coordindex,5)/8}] \loadedtable ;
+                \addplot table[x expr=100*(\thisrow{numGOTO}/\thisrow{numTOTAL}),meta expr=100*(\thisrow{numGOTO}/\thisrow{numTOTAL}),y expr={-\coordindex+fpumod(\coordindex,5)/8}] \loadedtable ;
+                \addplot table[x expr=100*(\thisrow{numUnstructuredFlow}/\thisrow{numTOTAL}),meta expr=100*(\thisrow{numUnstructuredFlow}/\thisrow{numTOTAL}),y expr={-\coordindex+fpumod(\coordindex,5)/8}] \loadedtable ;
+
+\node [align=center,rotate=270] at (axis cs: -5, -1.75) {cBench};
+\node [align=center,rotate=270] at (axis cs: -5, -6.75) {coreutils};
+\node [align=center,rotate=270] at (axis cs: -5, -11.75) {SPEC};
+\node [align=center,rotate=270] at (axis cs: -5, -16.75) {WCET};
+                \legend{FOR, WHILE, DO, GOTO, UF}
+            \end{axis}
+        \end{tikzpicture}
+        \caption{C statements used to express loops from loop classes (1) $\mathcal{L}^{SB}$, (2) $\mathcal{L}^{ST}$, (3) $\mathcal{L}^{simple(\text{*wxw})}$, (4) $\mathcal{L}$, and (5) $\mathcal{L} \setminus \mathcal{L}^{simple(\text{*wxw})}$.}
+        \label{fig:simple_loops_stmt}
+    \end{figure}
+\end{landscape}
+
+\Crefrange{fig:cBench_stmt_lp}{fig:WCET_stmt_lp} show \loopus' performance on loops partitioned by their assigned statement. Consistent with the observation that a high percentage of simple loops are expressed by a \texttt{for} statement, \loopus{} performs significantly better on these with $\approx 80\%$ of \texttt{FOR} loops bounded. Fortunately, \texttt{FOR} loops also make up the biggest portion of loops in all benchmarks ($\ge 46\%$ as shown in \Crefrange{fig:cBench_stmt_lp_perc}{fig:WCET_stmt_lp_perc}) and thus contribute to the overall performance above average. Performance on \texttt{WHILE} and \texttt{DO} loops is about the same but significantly lower than on \texttt{FOR}, and is remarkably low for \texttt{GOTO} at 0--18\%. \loopus{} fails to bound the single \texttt{UF} loop it discovers.
+
+\subsubsection{Discussion}
+
+We suggest possible explanations for the increased use of \texttt{for} statements to express simple loops:
+
+\begin{description}
+    \item[Readability] Arguably, \texttt{for} statements can be used to achieve better readability, because variable declaration and initialization, a controlling expression, and an advancing expression may be placed together in the statement's header. However, the programmer may not rely on the assumption that termination is only influenced by the statement's header, as arbitrary operations may occur in the statement's body. Thus, favoring the \texttt{for} statement can be beneficial for many simple loops -- precisely those in which a single increment occurs as the last statement in the loop body, or which can be rewritten to an equivalent subprogram of such form.
+    \item[Intended well-behavior] A more subtle explanation is that programmers may mark loops as "well-behaved" by using the \texttt{for} statement. This appeals to follow \citeauthor{DBLP:journals/cacm/Dijkstra72}'s notion that "the programmer should let correctness proof and program grow hand in hand" \cite{DBLP:journals/cacm/Dijkstra72}: If the programmer has a correctness proof in mind and finds it trivial, he writes the loop using a \texttt{for} statement, thus implicitly marking it as "low priority" for further quality-assuring measures, such as code reviews. In other cases, where the loop exhibits non-obvious flow of control, or he is not certain of his idea of a correctness proof, he may choose to use a \texttt{while} statement, thus marking it as "tricky", for the QA process and also to subsequent readers and editors of his own code.
+    \item[Assumed well-behavior] Unexperienced programmers may even assume that the \texttt{for} statement imposes restrictions ensuring certain well-behavior, although this is not the case, as we briefly illustrated at the beginning of this section. Other programming languages, such as Ada and Fortran, provide loop statements with some guaranteed properties. \Cref{lst:ada} illustrates such a statement: The Ada languages prevents assignment to the counter of \texttt{for} loops and the compiler enforces this property.
+\end{description}
+
+\begin{listing}
+    \begin{minted}{ada}
+for i in 0..N loop
+    -- not allowed:
+    i := 42;
+end loop;
+    \end{minted}
+    \caption{A Ada \texttt{for} loop.}
+    \label{lst:ada}
+\end{listing}
+
+ Although a strict guarantee as mentioned in the last paragraph is -- depending on its implementation -- either in general undecidable or very restrictive\footnote{by allowing only a small subset of the language in the loop body} for a C-like language, given the large number ($> 30\%$, c.f.\ \Cref{sec:simpleloopschar}) of syntactically terminating loops we found, we believe it is advisable to extend the C programming language with either:
+
+ \begin{itemize}
+     \item Syntactic sugar supporting the pattern followed by syntactically terminating loops, thus clearly marking such loops as belonging to this class, but not enforcing particular restrictions. Such a statement is likely to allow expression of a wider class of loops than just $\mathcal{L}^{ST}$, similar to our notion of simple loops.
+     \item Or, a restricted loop statement with some guaranteed properties, which are enforced by the compiler, thus restricting these loops to a well-defined subset such as $\mathcal{L}^{ST}$.
+ \end{itemize}
+
+ Both approaches -- the first one more informally, the second more formally -- would provide a way for both software engineers and automated program analysis tools to easily extract such implicit notions and patterns followed by the programmer from the source code. Of course, even without explicit language support, our tool \sloopy{} can be used in a pre-analysis run to obtain this classification.
+
+ \lpstmtchart{cBench}
+ \lpstmtchart{coreutils}
+ \lpstmtchart{SPEC}
+ \lpstmtchart{WCET}
+
+\section{Finding Bugs with \sloopy{}}
+Finally, we present an unexpected application of \sloopy{}: As stated in \Cref{sec:assumptions}, obtaining a syntactic termination proof by \textbf{increase} or \textbf{decrease} predicates over signed integers assuming two's complement overflow is an indicator of a buggy loop. Our tool \sloopy{} encountered one such bug in the Huffman encoder of GPL Ghostscript, which is part of the cBench suite. The malfunctioning code has been introduced in 1997, and to our knowledge has gone undetected for sixteen years. We raised the issue with the GPL Ghostscript developers, and the buggy code was subsequently removed.
+
+Let us study the affected loop, whose source code is given in \Cref{lst:ghostscript}: Variable \verb!n! counts from its initial value to \verb!MAX_INT!, and then overflows. From the context, it is clear that the loop was actually intended to enumerate the range $[0,n-1]$, i.e.\ the increment was supposed to read \verb!j++!.
+
+Using Google to search for the exact expression \verb!"for (i = 0; i < n; n++)"! returns \num{387000} results, which shows that this kind of typo-based bug is not uncommon. We believe \sloopy{} is an effective and efficient tool for detecting this kind of bug. It may even suggest possible corrections by trying to prove a modified loop statement which substitutes the loop counter with other visible variables.
+
+\begin{listing}
+    \begin{ccode}
+void hc_definition_from_bytes() {
+
+    /* omitted for brevity */
+
+    int n = (dbytes[i] >> 4) + 1;
+
+    for (int j = 0; j < n; n++) {   // buggy loop
+        def->values[counts[l]++] = v++;
+    }
+
+    /* omitted for brevity */
+}
+    \end{ccode}
+    \caption{A buggy loop in GPL Ghostscript.}
+    \label{lst:ghostscript}
+\end{listing}

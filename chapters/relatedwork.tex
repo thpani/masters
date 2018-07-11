@@ -1,0 +1,70 @@
+\section{Definite Iteration}
+
+Definite iteration describes an iteration over all elements of a set, such as the nodes of a linked list, the elements of an array, or an integer sequence. \citeauthor{DBLP:journals/tse/Stavely95} \cite{DBLP:journals/tse/Stavely95} gives a general definition. Some languages provide definite iteration as restricted loop statements, such as the Fortran \verb|do| statement or the Ada \verb|for| statement. \citeauthor{Hoare72} discusses a few special cases in \cite{Hoare72}. However, none of the loop statements in C guarantees this property, and there is no recent study determining how many loops take this restricted form.
+
+A study by \citeauthor{DBLP:journals/jss/Stavely93} \cite{DBLP:journals/jss/Stavely93} published in 1993 considers similar classes of definite iteration as our approach. The author determines iteration over high-level, \emph{abstract structures} such as sets, sequences or finite mappings. Because adequately determining these abstract data types is by itself a difficult task, classification was performed manually by the author's reasoning. Our work takes an algorithmic approach, which yields a concise definition of the studied classes, and -- as automated -- is easily extended to other programs.
+
+\section{Programming Clichés and Plans}
+
+\citeauthor{DBLP:conf/ijcai/Rich81} \cite{DBLP:conf/ijcai/Rich81} introduced the notion of \emph{programming clichés}, which he defines as standard forms used in engineering problem solving. In the programming domain, such standard forms are be commonly used data structures or algorithms, such as \emph{doubly-linked lists} or \emph{bubble sort}. An important aspect of clichés is that they can be implemented as syntactically and semantically quite different programs. Consider, for example, the \emph{string search} cliché:
+
+\emph{String search cliché}. Given a character string, the string is searched for all characters for which some predicate holds. For each of these elements, some action is performed.
+
+We illustrate possible implementations of this cliché by giving two examples:
+
+\begin{listing}[H]
+\begin{ccode}
+#define N 12
+const char a[N] = "...";
+
+for (int i = 0; i < N; i++) {
+    if (predicate(a[i])) {
+        // statement
+    }
+}
+\end{ccode}
+\caption{Index-based implementation of the string search cliché.}
+\label{lst:string_search_index}
+\end{listing}
+
+\begin{listing}[H]
+\begin{ccode}
+#define N 12
+const char a[N] = "...";
+
+for (char *c = a; c != 0; c++) {
+    if (predicate(*c)) {
+        // statement
+    }
+}
+\end{ccode}
+\caption{Pointer-based implementation of the string search cliché.}
+\label{lst:string_search_pointer}
+\end{listing}
+
+While the two implementations differ in their syntax and semantics, they encode the same basic cliché, searching for an element in an array (in this case, a character in a string). In order to summarize these different implementations in a common representation, \citeauthor{DBLP:conf/ijcai/Rich81} \cite{DBLP:conf/ijcai/Rich81} introduced \emph{programming plans}. Such plans describe constraints on the program's control flow and data flow. Programs fulfilling these constraints implement the cliché represented by the plan. \citeauthor{DBLP:conf/ijcai/Rich81} \cite{DBLP:conf/ijcai/Rich81} gives a formal language for such plan diagrams.
+
+In contrast to \emph{simple loops}, the programming plans capture high-level tasks such as "search in a binary tree", "item search in data structure", or "compute running total", whereas simple loops are only concerned with the more general concept of termination.
+
+\section{Software Metrics}
+
+Two widely used metrics for software programs are lines of code (LOC), a pure syntactical count of lines, and cyclomatic complexity (CC), measuring the complexity of the control-flow structure of the program. While metrics considering data-flow inside the program exist \cite{DBLP:journals/tse/HenryK81,DBLP:journals/tse/Weyuker88,DBLP:conf/iwpc/BeyerF10b}, we are not aware of one that relates data-flow to influencing the control-flow of loops, as our approach does. Additionally, software metrics are usually used as "predictors of reliability (the frequency of operational defects)" \cite{DBLP:journals/jss/FentonN99}, while our classification should not indicate defects but difficulty to prove termination. Whether the metrics introduced in this work can also be used to predict defects is an interesting research question (c.f.\ \Cref{ch:conclusion}). % Dep-degree \cite{DBLP:conf/iwpc/BeyerF10b} could be useful for measuring dependencies between nested loops, however.
+
+\section{Iterators}
+
+Iterators have been introduced to provide sequential access to the elements of an aggregate, without exposing its underlying implementation. As such, they are related to the simple loops we study in this thesis.
+Various programming languages provide built-in support for implementing and looping over iterators, such as Alphard \cite{DBLP:journals/cacm/ShawWL77} (introduced in the 1970s), CLU \cite{DBLP:books/sp/Liskov81} (early '80s), and Sather \cite{DBLP:journals/toplas/MurerOSS96} (around 1990). However, mainstream adoption only occured recently, e.g.\ in C\# (2002) and Java, which provided the iterator pattern for library collection classes in J2SE 1.2 (1998), and introduced syntactic sugar for looping over iterators in J2SE 5.0 (2004) \cite{Sun:2004:Online}.
+
+The Gang of Four book \cite{Gamma:1995} describes iterators as an object-oriented pattern: The iterator provides operations for checking if the iterator may be advanced, for accessing the current element, and for advancing the iterator. All mentioned languages except CLU implement variations of this pattern.
+
+As an abstraction of this approach, the language may provide a \verb|yield| statement: Iterators work like routines, except that they additionally may yield: Executing a \verb|yield| statement suspends operation of the iterator and returns control to the invoking loop statement, passing the \verb|yield| statement's arguments. Following the execution of the loop body, execution of the iterator is resumed. CLU and Sather directly implement this approach, and C\# provides the \verb|yield| statement as syntactic sugar for implementing the iterator pattern described above.
+
+Language providing pointer arithmetic such as C++ may rely on another iteration concept: pointers $i$ and $end$ to the beginning and end of a data structure are acquired. Pointer $i$ is then iteratively advanced through the data structure as far as $end$.
+
+Iterators of the first kind are typically employed for well-behaved iteration similar to the one expressed by our simple loops. However, while simple loops prescribe this well-behavedness, iterators can actually implement arbitrarily complex iteration -- they just provide a high-level interface to it. In this sense, simple loops describe a form of iteration that engineers usually expect from an iterator interface, but that is not guaranteed. The C++ kind of iterators is structurally closer to our work, but only feasible for data structures (i.e.\ not for integer-based iteration we studied here). We discuss extension of our work to data structures in \Cref{ch:conclusion}.
+
+\section{Induction Variables}
+
+Induction variables are variables whose value is a function of the loop iteration count. Linear induction variables take values $a i + b$, where $i$ is the count of loop iterations and $a, b$ are loop-invariant \cite{DBLP:books/aw/AhoSU86}. Modern compilers implement analyses to discover induction variables and based on the discovered variables perform optimizations such as strength reduction or induction variable elimination.
+
+While our approach to accumulated increments shares similarities with linear induction variables, we do not require counter values to be a function of the loop iteration. Rather, there may be arbitrary updates as long as the accumulated increment later implies eventual truth of an exit predicate (e.g.\ if only positive integers are added). In this respect, our analysis shares more similarities with interval abstract domains \cite{DBLP:conf/popl/CousotC77} than with induction variables.

@@ -1,0 +1,13 @@
+\section{Source Code}
+
+The source code of the \sloopy{} tool is available from the author's website at\\\url{http://forsyte.at/~pani/sloopy/}.
+
+\section{Experimental Results}
+
+Extensive datasets of the experimental evaluations presented in this thesis are available from the author's website at \url{http://forsyte.at/~pani/sloopy/}.
+
+\section{Loop Exchange Format}
+
+For comparison of experimental results between \sloopy{} and \loopus{} we introduced a simple format for referring to loops in C programs: We use tuples \mathlist{(path, line, property_1, property_2, \dots)} to refer to a natural loop's backedge, where $path$ is the relative filesystem path in the benchmark, and $line$ is the statement line number for back edges induced by unconditional jump statements (e.g.\ \texttt{continue} or \texttt{goto}), or the line number of the loop statement header for backedges induced by loop statements (\texttt{do}, \texttt{for}, \texttt{while}). The tuples can be output as comma-separated values to communicate among different tools.
+
+As our references are line-based, we first preprocess the source code to obtain a single statement per line normal form. This can easily be accomplished using the C preprocessor (to inline macros) and a pretty-printing tool such as \textsc{GNU Indent}. \loopus{} processes the frontend-translated LLVM intermediate representation (LLVM IR). To obtain file path and line number, we translate the C code with debug information, which generates appropriate metadata nodes in the LLVM IR. To make this metadata consistent with our definition from above, we employ a patched version of \textsc{Clang} available from \url{https://github.com/thpani/clang}.

@@ -1,0 +1,453 @@
+\documentclass[a4paper,11pt,twoside]{memoir}
+\chapterstyle{veelo}
+
+\usepackage{TUINFDA}
+
+\usepackage{url}
+\usepackage{graphicx}            			% Figures
+\usepackage{verbatim}            			% Code-Environment
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{multirow}
+\usepackage{csquotes}
+\MakeOuterQuote{"}
+\usepackage[chapter]{minted}
+\usemintedstyle{friendly}
+\newminted{c}{mathescape,linenos}
+\newmintedfile{c}{mathescape,linenos}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\newtheorem{theorem}{Theorem}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\newtheorem*{example}{Example}
+\usepackage{amssymb}
+\usepackage{pifont}
+\usepackage{bm}
+\newcommand{\cmark}{\ding{51}}
+\newcommand{\xmark}{\ding{55}}
+\usepackage{subcaption}
+\usepackage{booktabs}
+\renewcommand{\arraystretch}{1.2} % more space between rows
+\usepackage{siunitx}
+\sisetup{%
+table-format = 3.1,
+round-mode = places,round-precision=1,
+detect-weight=true,detect-inline-weight=math
+}
+\robustify\bfseries
+
+\usepackage{pgf}
+\usepackage{tikz}
+\usepackage{tikz-3dplot} 
+\usepackage{pgfplots}
+\pgfplotsset{compat=newest}
+\usepackage{pgfplotstable}
+\usetikzlibrary{arrows,shapes,automata,calc,positioning}
+\newcommand{\yslant}{0.5}
+\newcommand{\xslant}{-0.7}
+
+\newcommand{\arcTo}{\rotatebox{90}{$\curvearrowleft$}}
+
+\usepackage{ngerman}
+\usepackage[english,ngerman]{babel}
+
+\usepackage{footnote}
+\makesavenoteenv{table}
+\makesavenoteenv{tabular}
+
+% center floats
+\makeatletter
+\g@addto@macro\@floatboxreset\centering
+\apptocmd\subcaption@minipage{\centering}{}{}
+\makeatother
+
+\usepackage{pdflscape}
+
+% \rowstyle
+\usepackage{array}
+\newcolumntype{$}{>{\global\let\currentrowstyle\relax}}
+\newcolumntype{^}{>{\currentrowstyle}}
+\newcommand{\rowstyle}[1]{\gdef\currentrowstyle{#1}%
+  #1\ignorespaces
+}
+\newcolumntype{H}{>{\setbox0=\hbox\bgroup}c<{\egroup}@{}}
+\usepackage{adjustbox}
+\newcolumntype{R}[2]{%
+    >{\adjustbox{angle=#1,lap=\width-(#2)}\bgroup}%
+    l%
+    <{\egroup}%
+}
+\newcommand*\rot{\multicolumn{1}{R{45}{1em}}}% no optional argument here, please!
+
+% mathlist
+\mathchardef\breakingcomma\mathcode`\,
+{\catcode`,=\active
+  \gdef,{\breakingcomma\discretionary{}{}{}}
+}
+\newcommand{\mathlist}[1]{$\mathcode`\,=\string"8000 #1$}
+\newcommand{\mathalg}[1]{$\langle\mathcode`\,=\string"8000 #1\rangle$}
+\newcommand{\mathset}[1]{$\{\mathcode`\,=\string"8000 #1\}$}
+\newcommand{\mathtup}[1]{$(\mathcode`\,=\string"8000 #1)$}
+
+\usepackage[backend=biber,maxbibnames=99,isbn=false]{biblatex}
+\addbibresource{thesis.bib}
+
+\usepackage{hyperref}  % links in pdf
+\usepackage{cleveref}           % Has to be loaded after hyperref
+
+\thesistitle{Loop Patterns in C Programs}
+% \thesissubtitle{} % optional
+\thesisdate{01.12.2013}
+
+% all titles and designations have to be gender-related!
+\thesisdegree{Diplom-Ingenieur}{Diplom-Ingenieur}
+\thesiscurriculum{Software Engineering \& Internet Computing}{Software Engineering \& Internet Computing} % your study
+\thesisverfassung{Verfasser} % Verfasser
+\thesisauthor{Thomas Pani} % your name
+\thesisauthoraddress{Lerchengasse 33, 3430 Tulln} % your address
+\thesismatrikelno{0726415} % your registration number
+
+\thesisbetreins{Univ.Prof.~Dipl.-Ing.~Dr.techn.~Helmut Veith}
+\thesisbetrzwei{Ass.Prof.~Dipl.-Math.~Dr.techn.~Florian Zuleger}
+
+% define page numbering styles
+\makepagestyle{numberCorner}
+\makeevenfoot{numberCorner}{\thepage}{}{}
+\makeoddfoot{numberCorner}{}{}{\thepage}
+
+% define custom macros for specific formats or names
+\DeclareMathOperator{\controlvars}{ControlVars}
+\DeclareMathOperator{\sgn}{sgn}
+\newcommand{\true}{\textsf{true}}
+\newcommand{\false}{\textsf{false}}
+\newcommand{\unknown}{\textsf{undef}}
+\newcommand{\entry}{\textsc{Entry}}
+\newcommand{\exit}{\textsc{Exit}}
+\newcommand{\header}{\textsc{Header}}
+\newcommand{\loopus}{\textsc{Loopus}}
+\newcommand{\sloopy}{\textsc{Sloopy}}
+
+\usepackage{etoolbox}
+\usepackage{xstring}
+
+\DeclareRobustCommand{\benchname}[1]{%
+  \StrBefore{#1}{_}[\tempa]%
+  \tempa%
+}
+\pgfmathdeclarefunction{fpumod}{2}{%
+    \pgfmathfloatdivide{#1}{#2}%
+    \pgfmathfloatint{\pgfmathresult}%
+    \pgfmathfloatmultiply{\pgfmathresult}{#2}%
+    \pgfmathfloatsubtract{#1}{\pgfmathresult}%
+    \pgfmathfloatifapproxequalrel{\pgfmathresult}{#2}{\def\pgfmathresult{0}}{}%
+}
+
+% bench/tools/list coreutils True Exits | sort -n | uniq -c
+\newcommand{\figbarset}[4]{%
+    \def \figbarvarl {#1}
+    \def \Figbarvarl {#2}
+    \def \xmin {#3}
+    \def \xmax {#4}
+    \def \plotcutarrow {-}
+}
+\newcommand{\figbar}[2]{%
+\pgfplotstableread{tables/#1.dat}\loadedtable
+\begin{figure}
+    \pgfplotsset{width=0.75\linewidth,height=0.22\textheight}
+    \begin{tikzpicture}
+        \pgfplotsset{set layers}
+        \begin{axis}[
+            scale only axis,
+            bar width=0.8\linewidth/\xmax/1.5,
+            scaled ticks=false,
+            xmin=\xmin-1, xmax=\xmax,
+            ybar stacked,
+            xlabel=\Figbarvarl,
+            xtick={\xmin,...,\xmax},
+            ymin=0,%ymax=#2,
+            ylabel=Number of loops,
+            axis y line*=left,
+            x axis line style={\plotcutarrow}
+        ]
+        \addplot[green!60!black,fill=green!30!white] table[x=num,y=bound] \loadedtable ;
+        \addplot table[x=num,y=nonbound] \loadedtable ;
+    \end{axis}
+    \begin{axis}[
+        scale only axis,
+        xmin=\xmin-1, xmax=\xmax,
+        ymin=0, ymax=1,
+        axis y line*=right,
+        axis x line=none,
+        ylabel={Loopus performance}
+    ]
+    \addplot table[x=num,y expr=\thisrow{bound}/(\thisrow{bound}+\thisrow{nonbound})] \loadedtable ;
+  \end{axis}
+\end{tikzpicture}
+\ifx \plotlessdetail \undefined
+\caption{Terminating (green) and non-terminating (red) loops in \benchname{#1} as determined by \loopus{} grouped by their \figbarvarl. The blue graph shows \loopus{} performance, i.e. the ratio of loops bounded by \loopus{} to the total number of loops, in the respective class.}
+\else
+\caption{Loops in \benchname{#1} grouped by their \figbarvarl.}
+\fi
+\label{fig:#1}
+\end{figure}
+}
+
+\newcommand{\lpstmtchart}[1]{%
+\pgfplotstableread{tables/#1_stmt_lp.dat}\loadedtable
+\begin{figure}
+    \begin{subfigure}[t]{0.50\linewidth}
+        \begin{tikzpicture}[scale=0.9]
+            % \pgfplotsset{width=0.8\linewidth}
+            \begin{axis}[
+                xbar,
+                bar width=0.45,
+                xmin=0,xmax=100,
+                clip=false,
+                ytick=data,
+                yticklabels={FOR,WHILE,DO,GOTO,UF},
+                yticklabel pos=right,
+                nodes near coords={\pgfmathprintnumber[fixed, precision=0]{\pgfplotspointmeta}\%},
+                ]
+                \addplot table[x expr=100*(\thisrow{bound}+\thisrow{nonbound})/\thisrow{any},y expr=-\coordindex] \loadedtable ;
+            \end{axis}
+        \end{tikzpicture}
+        \caption{Percentage of statements in the #1 benchmark suite.}
+        \label{fig:#1_stmt_lp_perc}
+    \end{subfigure}%
+    \hfill%
+    \begin{subfigure}[t]{0.46\linewidth}
+        \begin{tikzpicture}[scale=0.9]
+            % \pgfplotsset{width=0.8\linewidth}
+            \pgfplotsset{%
+                single xbar legend/.style={%
+                    legend image code/.code={\draw[##1,/tikz/.cd,bar width=6pt,bar shift=0pt,xbar] plot coordinates {(0.8em,0pt)};},
+                }
+            }
+            \begin{axis}[
+                legend style={at={(0.5,-0.1)},anchor=north},
+                xbar stacked,
+                bar width=0.45,
+                xmin=0,xmax=100,
+                clip=false,
+                ytick=data,
+                yticklabels={,,,,},
+                nodes near coords={\pgfmathprintnumber[fixed, precision=0]{\pgfplotspointmeta}\%},
+                every node near coord/.style={font=\scriptsize},
+                ]
+
+                \addplot[green!60!black,fill=green!30!white] table[x expr=100*(\thisrow{bound}/(\thisrow{nonbound}+\thisrow{bound}),y expr=-\coordindex] \loadedtable ;
+                \addplot table[x expr=100*(\thisrow{nonbound}/(\thisrow{nonbound}+\thisrow{bound}),y expr=-\coordindex] \loadedtable ;
+            \end{axis}
+        \end{tikzpicture}
+        \caption{Percentage of loops expressed by the resp. statement bounded (green) and not bounded (red) by \loopus{}.}
+        \label{fig:#1_stmt_lp}
+    \end{subfigure}
+    \caption{Comparison of loop statements with \loopus{} results on #1.}
+\end{figure}
+}
+
+\newcommand{\lpchart}[1]{%
+\pgfplotstableread{tables/#1_lp.dat}\loadedtable
+\begin{figure}[h]
+    \begin{subfigure}[t]{0.50\linewidth}
+        \begin{tikzpicture}[scale=0.9]
+            % \pgfplotsset{width=0.8\linewidth}
+            \begin{axis}[
+                xbar,
+                bar width=0.45,
+                xmin=0,xmax=100,
+                clip=false,
+                ytick=data,
+                yticklabels={(1), (2), (3), (4), (5)},
+                nodes near coords={\pgfmathprintnumber[fixed, precision=0]{\pgfplotspointmeta}\%},
+                ]
+                \addplot table[x expr=100*(\thisrow{bound}+\thisrow{nonbound})/\thisrow{any},y expr=-\coordindex] \loadedtable ;
+                % \draw[dashed] (axis cs: -10,-2.5)--(axis cs:110,-2.5);
+                \draw[dashed] (axis cs: -5,-3.5)--(axis cs:105,-3.5);
+            \end{axis}
+        \end{tikzpicture}
+        \caption{Percentage of loop classes (1) $\mathcal{L}^{SB}$, (2) $\mathcal{L}^{ST} = \mathcal{L}^{simple(\text{*pit})}$, (3) $\mathcal{L}^{simple(\text{*wxw})}$, (4) $\mathcal{L}$, and (5) $\mathcal{L} \setminus \mathcal{L}^{simple(\text{*wxw})}$ in the #1 benchmark suite.}
+        \label{fig:#1_simple_percent}
+    \end{subfigure}%
+    \hfill%
+    \begin{subfigure}[t]{0.46\linewidth}
+        \begin{tikzpicture}[scale=0.9]
+            % \pgfplotsset{width=0.8\linewidth}
+            \pgfplotsset{%
+                single xbar legend/.style={%
+                    legend image code/.code={\draw[##1,/tikz/.cd,bar width=6pt,bar shift=0pt,xbar] plot coordinates {(0.8em,0pt)};},
+                }
+            }
+            \begin{axis}[
+                legend style={at={(0.5,-0.1)},anchor=north},
+                xbar stacked,
+                bar width=0.45,
+                xmin=0,xmax=100,
+                clip=false,
+                ytick=data,
+                yticklabels={,,,,},
+                nodes near coords={\pgfmathprintnumber[fixed, precision=0]{\pgfplotspointmeta}\%},
+                every node near coord/.style={font=\scriptsize},
+                ]
+
+                \addplot[green!60!black,fill=green!30!white] table[x expr=100*(\thisrow{bound}/(\thisrow{nonbound}+\thisrow{bound}),y expr=-\coordindex] \loadedtable ;
+                \addplot table[x expr=100*(\thisrow{nonbound}/(\thisrow{nonbound}+\thisrow{bound}),y expr=-\coordindex] \loadedtable ;
+                % \draw[dashed] (axis cs: -10,-2.5)--(axis cs:110,-2.5);
+                \draw[dashed] (axis cs: -5,-3.5)--(axis cs:105,-3.5);
+            \end{axis}
+        \end{tikzpicture}
+        \caption{Percentage of loops in the resp. class bounded (green) and not bounded (red) by \loopus{}.}
+        \label{fig:#1_simple_bounded}
+    \end{subfigure}
+    \caption{Comparison of various loop classes with \loopus{} results on #1.}
+\end{figure}
+}
+
+\newcommand{\stattable}[1]{%
+\begin{table}
+\begin{tabular}{lS[round-precision=1,table-format=1.1]SS}\toprule
+Benchmark & \multicolumn{3}{c}{\Figbarvarl} \\ \cmidrule(lr){2-4}
+& {Median $\tilde{x}$} & {Mean $\bar{x}$} & {Standard deviation $s$} \\ \midrule
+\input{tables/#1} \bottomrule
+\end{tabular}
+\caption{Statistical parameters for the \figbarvarl{}.}
+\label{tab:stat_#1}
+\end{table}
+}
+
+% epigraph
+\epigraphfontsize{\small\itshape}
+\setlength\epigraphwidth{8cm}
+\setlength\epigraphrule{0pt}
+
+\begin{document}
+
+% \listoftodos
+
+\captionnamefont{\bfseries}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%   FRONTMATTER    %%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\frontmatter
+\pagenumbering{roman}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%   TITLEPAGES    %%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% the german title page is required as first page
+\include{titlepage}
+
+% an english translation may follow
+\include{titlepage_en} % optional
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%   ERKLAERUNG DER SELBSTAENDIGKEIT   %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\cleardoublepage
+\selectlanguage{ngerman}
+\input{chapters/erklaerung}
+\selectlanguage{english}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%   ACKNOWLEDGEMENTS    %%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\input{chapters/joke}
+\input{chapters/acknowledgements}	% optional
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%   ABSTRACT    %%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\input{chapters/abstract_en}
+\cleardoublepage
+\selectlanguage{ngerman}
+\input{chapters/abstract_de}
+\selectlanguage{english}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%   CONTENTS    %%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\setcounter{tocdepth}{1}
+
+\cleardoublepage
+\pagestyle{numberCorner}
+\tableofcontents*
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%   MAINMATTER    %%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\mainmatter
+\pagenumbering{arabic}
+\pagestyle{numberCorner}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{Introduction}
+\label{ch:intro}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\input{chapters/introduction}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{Structural Classification}
+\label{ch:structural}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\input{chapters/structural}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{Syntactic Termination Proofs}
+\label{ch:syntacticproof}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\input{chapters/syntacticproof}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{Simple Loops}
+\label{ch:simpleloops}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\input{chapters/simpleloops}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{Experimental Results}
+\label{ch:experimental}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\input{chapters/experimental}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{Related Work}
+\label{ch:relatedwork}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\input{chapters/relatedwork}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{Research Directions}
+\label{ch:conclusion}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\input{chapters/conclusion}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% BACKMATTER %%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\appendix
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{Further Resources}
+\label{ch:further}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\input{chapters/further}
+
+\printbibliography
+
+\end{document}

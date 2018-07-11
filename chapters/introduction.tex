@@ -1,0 +1,158 @@
+\emph{Turing complete} languages provide constructs capable of expressing \emph{conditional execution} and \emph{indefinite iteration}. In imperative languages, these are usually implemented as loop statements -- a typical example is the \verb|while| statement of the C programming language. As shown by Turing's work on the \emph{halting problem}, this ability to express indefinite iteration also entails undecidable problems for automated program analysis \cite{turing}.
+
+\section{State of the Art in Program Analysis}
+
+ Proving program termination has resurged as a research topic in the last decade inspired by the success of automated program verification \cite{DBLP:journals/cacm/CookPR11}. Moreover, proving program termination is famously known to be undecidable. The only way to show the usefulness of a termination procedure is to demonstrate its efficacy on practical problems. The same goes for all program analysis problems due to Rice's theorem.
+
+Despite the fact that we have techniques to tackle some, but by far not all decidable cases, so far no notion of difficulty with regard to handling loops has been established in the scientific community. Consequently, also the occurrence of "simple" versus "difficult" loops in practice, as well as properties of such loops have not been studied. As Dijkstra put it in his Turing Award Lecture \citetitle{DBLP:journals/cacm/Dijkstra72}, "it is our business to design classes of computations that will display a desired behavior \cite{DBLP:journals/cacm/Dijkstra72}", and we intend to introduce such classes for loops that can algorithmically be shown to terminate.
+
+\section{Programs as Human Artifacts}
+
+Historically, a few key insights have vastly increased the scalability of automated program analysis to tackle additional decidable cases from whole new application areas. We illustrate this on the example of model checking, a verification technique: During the thirty years since its inception \cite{DBLP:conf/popl/ClarkeES83,DBLP:conf/programm/QueilleS82}, first the introduction of symbolic model checking \cite{DBLP:conf/lics/BurchCMDH90} made it possible to verify hardware and embedded systems. Subsequently, bounded model checking \cite{DBLP:journals/fmsd/ClarkeBRZ01} and counterexample-guided abstraction refinement (CEGAR) \cite{DBLP:conf/cav/ClarkeGJLV00} allowed its application to small pieces of software such as device drivers \cite{DBLP:conf/eurosys/BallBCLLMORU06}. However, so far the verification of more complex systems, such as applications code has barely been tapped. Especially CEGAR can in principal scale to larger problems: The concrete, exponentially large system to analyze is projected onto a smaller abstract system, for which exploration by the model checker is feasible. The challenge lies in the automated selection of good abstraction functions, which we illustrate for integer variables:
+
+Consider \Cref{lst:varroles}: Variable \texttt{b} is a \emph{boolean flag}, i.e.\ it takes only values 0 and 1. Analysis will benefit from an abstraction on the predicate $b = 0$. Variable \texttt{i} on the other hand is used as \emph{counter variable}, and choosing the same abstraction $i = 0$ is most likely too coarse. Note that the terms we naturally used to refer to these variables are not directly reflected in the programming language: both are declared as \texttt{int} variables -- their role is an intuitive notion attributed by the human reader of the program. One can however use patterns of data flow and control flow to algorithmically extract such intuitive notions from programs \cite{DBLP:journals/corr/abs-1305-6745}.
+
+\begin{listing}
+    \begin{ccode}
+for (int i = 0; i < N; i++) {
+
+    int b;
+    if (f(i) == X) {
+        b = 0;
+    } else {
+        b = 1;
+    }
+
+    // ...
+}
+    \end{ccode}
+    \caption{An example illustrating variable roles.}
+    \label{lst:varroles}
+\end{listing}
+
+In short, this approach follows a new direction in automated program analysis: Instead of purely treating programs as mathematical objects, they are also considered as human artifacts containing information directed at human readers of the program. Such engineering information is usually provided informally (e.g.\ as comments) or implicitly (e.g.\ as patterns followed by programmers) and can provide additional insight that is much needed for the advancement of automated program analysis. Again, Dijkstra referred to the power of such knowledge introduced by engineers in his Turing Award Lecture: "The effective exploitation of his powers of abstraction must be regarded as one of the most vital activities of a competent programmer \cite{DBLP:journals/cacm/Dijkstra72}". Due to the intricate properties of loop statements outlined above, a systematic study of loops on this level can provide interesting results.
+
+\section{A Systematic Study of Loop Patterns}
+
+Motivated by the hard problems entailed by indefinite iteration and the current challenges in automated program analysis, we propose to conduct a systematic study of loops. We sketch the key requirements of such a study:
+
+\begin{enumerate}
+    \item The study should consider a reasonable amount of code from different application areas to arrive at meaningful results.
+    \item The obtained results should be reproducible on arbitrary benchmark cases.
+\end{enumerate}
+
+Due to these constraints, a manual approach seems infeasible and we need to provide an algorithmic solution. Furthermore, we need to divide loops into meaningful classes for which the difficulty of program analysis is studied. How to arrive at this classification is non-trivial: As most programming languages provide means to express arbitrary iteration by the same statement, we cannot rely on a purely syntactic pattern matching. On the other hand, it is not sensible to implement another tool trying to prove program termination. That way we would end up with two classes "handled by automated program analysis implemented in tool X" and "not handled by automated program analysis implemented in tool X" -- i.e., the status quo instead of a classification applicable across existing tools that assigns classes of loops a relative difficulty.
+
+Motivated by the work on variable roles introduced earlier, we decide to incorporate the notion of software as a human artifact in our classification: If engineers follow specific patterns to express certain classes of loops, it should be possible to extract a classification according to these patterns from the source code.
+
+In the following, \Cref{sec:app_emp_eval} first illustrates an application of the systematic study of loop patterns proposed here. Afterwards, \Cref{sec:meth_app} details the concrete loop patterns we study in this thesis.
+
+\section{An Application: Empiric Evaluation}
+\label{sec:app_emp_eval}
+
+Given the wide range of available techniques in automated program analysis, as well as the theoretic limitations of undecidability, empiric evaluation is of central importance to establish both academic merit as well as applicability to the software engineering domain. However, the selection of benchmarks to perform the evaluation on is mostly one of the authors' preference. We propose the introduction of \emph{benchmark metrics} such as the loop classes introduced in this work to address this problem:
+
+To illustrate the current practices of benchmarking in the automated program analysis community, we surveyed a sample of participants in the first \emph{Competition on Software Verification} (SV-COMP). In our survey, we collected on which benchmark suites the tools had originally\footnote{any publication about the tool before SV-COMP'12} been evaluated by their authors. The surveyed participants, discovered benchmarks, and results are shown in \Cref{tab:svcomp_bench}: If we found a tool to be benchmarked on a particular benchmark, the respective cell contains a check mark. If only a subset or modified version was used, the check mark is in parentheses.
+
+\begin{table}
+\begin{tabular}{|l|l|Hl|l|HHHl|l|l|}
+Benchmark / Tool                                                              & \rot{CPAchecker-ABE \cite{DBLP:conf/fmcad/BeyerKW10}}                                 &        & \rot{FShell \cite{DBLP:conf/cav/HolzerSTV08,DBLP:conf/kbse/HolzerTVS10}} & \rot{HSF(C) \cite{DBLP:conf/pldi/GrebenshchikovLPR12}} & LLBMC cite{Falke} & \cite{DBLP:conf/vstte/MerzFS12} & cite{Falke2} & \rot{Predator \cite{DBLP:conf/cav/DudkaPV11,DBLP:conf/sas/DudkaPV13}} & \rot{SatAbs \cite{DBLP:conf/kbse/WitkowskiBKW07}} & \rot{Wolverine \cite{DBLP:conf/cav/KroeningW11}} \\
+\hline
+\texttt{test\_blocks} \cite{DBLP:conf/fmcad/BeyerKW10}                        & \cmark                                                                                &        &                                                                          &                                                        &                    &                                 &               &                                                                       &                                                   &                                                  \\
+\texttt{ssh-simplified} \cite{DBLP:conf/cav/BeyerK11}                         & \cmark                                                                                &        &                                                                          & \cmark                                                 &                    &                                 &               &                                                                       &                                                   &                                                  \\
+\texttt{ntdrivers} \cite{DBLP:conf/cav/BeyerK11}                              & (\cmark)\footnote{a simplified version of the sources, \texttt{ntdrivers-simplified}} &        & (\cmark)\footnote{only \texttt{kbfiltr.c}}                               & \cmark                                                 &                    &                                 &               &                                                                       &                                                   &                                                  \\
+Numerical Recipes \cite{DBLP:books/cu/PressTVF92}                             &                                                                                       &        &                                                                          & \cmark                                                 &                    &                                 &               &                                                                       &                                                   &                                                  \\
+\texttt{matlab.c} \cite{DBLP:conf/cav/HolzerSTV08,DBLP:conf/kbse/HolzerTVS10} &                                                                                       & \cmark & \cmark                                                                   &                                                        &                    &                                 &               &                                                                       &                                                   &                                                  \\
+\texttt{memman.c} \cite{DBLP:conf/kbse/HolzerTVS10}                           &                                                                                       &        & \cmark                                                                   &                                                        &                    &                                 &               &                                                                       &                                                   &                                                  \\
+PicoSAT \cite{DBLP:journals/jsat/Biere08}                                     &                                                                                       &        & \cmark                                                                   &                                                        &                    &                                 &               &                                                                       &                                                   &                                                  \\
+Linux VFS \cite{DBLP:conf/vmcai/GallowayLMS09}                                &                                                                                       &        & (\cmark)\footnote{a single example use case}                             &                                                        &                    &                                 &               &                                                                       &                                                   &                                                  \\
+Busybox coreutils \cite{busybox}                                              &                                                                                       &        & (\cmark)\footnote{selected tools}                                        &                                                        &                    &                                 &               &                                                                       &                                                   &                                                  \\
+\texttt{lvm2} \cite{DBLP:conf/cav/YangLBCCDO08}                               &                                                                                       &        &                                                                          &                                                        &                    &                                 &               & \cmark                                                                &                                                   &                                                  \\
+NSPR memory allocator \cite{DBLP:conf/cav/YangLBCCDO08}                       &                                                                                       &        &                                                                          &                                                        &                    &                                 &               & \cmark                                                                &                                                   &                                                  \\
+\texttt{cdrom.c} \cite{DBLP:conf/cav/YangLBCCDO08,DBLP:conf/sas/DudkaPV13}    &                                                                                       &        &                                                                          &                                                        &                    &                                 &               & \cmark                                                                &                                                   &                                                  \\
+SLAyer driver snippets \cite{DBLP:conf/cav/BerdineCI11}                       &                                                                                       &        &                                                                          &                                                        &                    &                                 &               & \cmark                                                                &                                                   &                                                  \\
+Predator case studies \cite{DBLP:conf/cav/DudkaPV11}                          &                                                                                       &        &                                                                          &                                                        &                    &                                 &               & \cmark                                                                &                                                   &                                                  \\
+\texttt{nbd} \cite{DBLP:conf/cav/KroeningW11}                                 &                                                                                       &        &                                                                          &                                                        &                    &                                 &               &                                                                       &                                                   & \cmark                                           \\
+\texttt{machzwd} \cite{DBLP:conf/kbse/WitkowskiBKW07}                         &                                                                                       &        &                                                                          &                                                        &                    &                                 &               &                                                                       & \cmark                                            & \cmark                                           \\
+\end{tabular}
+\caption{A sample of SV-COMP participants and benchmarks originally used.}
+\label{tab:svcomp_bench}
+\end{table}
+
+As \Cref{tab:svcomp_bench} illustrates, only three of the sixteen benchmarks were used for multiple tools: \texttt{ntdrivers}, \texttt{machzwd} and \texttt{ssh-simplified}. Moreover, \texttt{ntdrivers} only recurred as a simplified or stripped-down version. \texttt{machzwd} occurred twice, but in publications sharing one author. The only independently and fully reused benchmark is \texttt{ssh-simplified}, which only two of the sampled six participants had used for evaluation. We believe this state of the art is less than ideal as comparability of experimental results is essentially lost due to non-comparable benchmark programs that the experiments were based on. Thus, we discuss two possible strategies to improve upon the state of the art:
+
+\subsection{Commonly Agreed-upon Benchmarks}
+
+One way of resolving the distortion of empiric results is to establish an commonly accepted benchmark suite. SV-COMP is prominently promoting this direction and sets one of its goals to "establish a set of benchmarks for software verification in the community" \cite{DBLP:conf/tacas/Beyer12,DBLP:conf/tacas/Beyer13}. Having a set of established and widely accepted benchmarks comes with a number of benefits: First, experimental results for tools benchmarked on this suite are easily comparable, especially if the results are established in a recurring competition under controlled settings. Second, establishing the suite itself, as well as related discussion, e.g.\ on the properties to check, happens within the scientific process. However, even if an extensive, established and accepted benchmark suite exists, some concerns remain. These challenges also illustrate why re-benchmarking an existing tool on a different benchmark is a questionable practice:
+
+\begin{description}
+    \item[Domain-specific tools.] Many tools are created for the purpose of demonstrating specialized methods on a well-defined problem domain. Consider systems level code, which is largely unthinkable without pointer types, whereas applications code dedicated to problem solving domains will prefer integer-based arithmetic, and scientific code may extensively rely on floating-point arithmetic. In terms of resource efficiency, authors of such tools may restrict their evaluation to show merit on that specific problem domain. Benchmarks used may largely or completely be comprised of manufactured examples that explicitly illustrate this one problem domain. Applying such tools to less specialized benchmarks would distort the value of their contribution. On the other hand, establishing commonly agreed-upon benchmarks for every single problem domain seems infeasible.
+    \item[Academic prototypes.] Producing industrial-grade, reliably maintained tools seldomly is the output of academic research. Rather, research prototypes provide a well-enough solution for demonstrating theoretic underpinnings. As such, research prototypes are often optimized for a specific set of benchmarks to illustrate what may be accomplished -- given the proper resources -- in the general case. (Re-)benchmarking these tools on a wider set of benchmarks than the authors can afford to optimize for may again lead to distortion of the actual merit.
+\end{description}
+
+\subsection{Benchmark Metrics}
+
+While establishing a commonly agreed-upon set of benchmarks is certainly of value for general-purpose tools, this approach comes with the above-mentioned restrictions. Orthogonally, we propose to augment the process of empiric evaluation by a new family of metrics. These should evidently capture common properties of programs (benchmarks) and indicate the difficulty of automatically reasoning about certain properties of this program. Traditionally, software metrics have been used to indicate modules in which an increased number of faults is expected. As our proposal applies metrics to measure properties of benchmark programs, we call these metrics \emph{benchmark metrics}. The classes of loops we introduce in this thesis may serve as such a benchmark metric. For example, one can report the number of \emph{simple loops} (introduced in \Cref{ch:simpleloops}) in a benchmark program.
+
+\Cref{fig:richmetricsprocess} illustrates the additional steps during empiric evaluation: As soon as a set of benchmarks is fixed, in parallel to performing the usual empiric evaluation, one starts establishing benchmark metrics for the chosen benchmarks. Having computed a benchmark metric $m$, this metric is compared to an agreed-upon normal value or range $R$. If $m$ is consistent with that normal range ($m \in R$), one may simply report this fact. Otherwise, the publication should account for the deviation and provide an explanation, as we will demonstrate in \Cref{ch:experimental}. In each case, we conjecture this justification may be succinctly provided in a few sentences or a short table, thus not severely impacting publication length.
+
+It is important to note that a deviation of $m$ from the normal range $R$ by itself is not negative in any way. It merely expresses that experimental results may not be comparable to experimental results of other tools in the specific area captured by the benchmark metric. For heavily application- or domain-dependent measures, one may even introduce a family of normal ranges $\mathcal{R}$, with one normal range $R \in \mathcal{R}$ per application area or problem domain. Mutual agreement on a set of benchmark metrics, as well as respective normal ranges, is essential to our approach. We believe that these can be reliably established as part of the current scientific process.
+
+\begin{figure}
+\begin{tikzpicture}[node distance = 4cm, auto,
+    block/.style = {rectangle, draw, text width=6em, text centered, rounded corners, minimum height=4em},
+    decision/.style={diamond, draw, text width=6em, text badly centered, inner sep=0pt},
+    new/.style = {fill=blue!20},
+    newline/.style = {blue},
+    line/.style = {draw, -latex'}
+    ]
+    % Place nodes
+    \node [block] (init) {choose benchmarks};
+    \node [node distance = 2cm, left of=init] (entry) {};
+    \node [block, right of=init] (eval) {perform usual empiric evaluation};
+    \node [block, right of=eval] (report) {report results};
+    \node [block, new, below of=init] (compute) {compute benchmark metric $m$ of benchmark};
+    \node [decision, new, right of=compute] (compare) {is $m$ within agreed-upon normal range?};
+    \node [block, new, right of=compare] (explain) {explain deviation of $m$};
+    \node [node distance = 2cm, right of=report] (exit) {};
+    % Draw edges
+    \path [line] (entry) -- (init);
+    \path [line] (init) -- (eval);
+    \path [line, newline] (init) -- (compute);
+    \path [line, newline] (compute) -- (compare);
+    \path [line] (eval) -- (report);
+    \path [line, newline] (compare) -- node {yes} (report);
+    \path [line, newline] (compare) -- node {no} (explain);
+    \path [line, newline] (explain) -- (report);
+    \path [line] (report) -- (exit);
+\end{tikzpicture}
+\caption{Benchmark metrics augment (blue) the established empiric evaluation process.}
+\label{fig:richmetricsprocess}
+\end{figure}
+
+In terms of the concerns we raised about commonly-agreed benchmarks, the need for well-maintained mature tools is pushed from the actual prototype implementations to a set of benchmark metric tools. Given the broad application range\footnote{C.f.\ applications of this thesis discussed below and in \Cref{ch:conclusion} as an example for loop-related applications.} of these tools, and from our experience with implementing such a tool, we expect maintenance of high-quality benchmark metric tools to be much more practicable. If benchmark metric analysis is performed on an intermediate representation for which different language frontends exist, a single tool may be applied to benchmarks in a variety of programming languages. Likewise, the process of agreeing on a standardized set of benchmarks (which might be subject to political discussions) is replaced by agreeing on a set of benchmark metrics. If two benchmarks largely agree on this set of benchmark metrics, they are considered equivalent. If a pair of benchmarks is considered equivalent but from experience should not be, establishing this fact and providing an updated or newly introduced benchmark metric is an interesting research question by itself.
+
+\section{Methodological Approach}
+\label{sec:meth_app}
+
+In the previous sections we gave an introduction to the state of the art and discussed the problem at hand. Furthermore, we proposed to conduct a systematic study of loop patterns and exemplarily illustrated an application of such a study. We now give a more detailed overview of the study conducted in this thesis and an introduction to our concrete approach.
+
+Automated program analysis is usually performed on a low-level, so-called \emph{intermediate representation} of the program obtained from its source code using a compiler. However, this intermediate representation does no longer capture the structure of the program the programmer intended, as high-level constructs of the original programming language are broken down to a small set of low-level operations and optimizations are performed by the compiler. Therefore, we base our analysis on an unaltered representation of the program's source code, the \emph{control flow graph} (CFG), a standard data structure in compiler construction. In contrast to the second data structure capturing the the program's source code, the \emph{abstract syntax tree} (AST), the CFG makes control flow explicit, which is essential to our further approach. To obtain the program's CFG, we may rely on existing frameworks -- we choose to base our analysis on the C programming language, the lingua franca of automated program analysis tools, and implement it in \textsc{Clang}, a modern C language frontend for the \textsc{LLVM} compiler framework.
+
+In addition, we employ \emph{data-flow analysis}, a standard technique used in compilers e.g.\ for \emph{reaching definitions} or \emph{live variable} analyses \cite{DBLP:books/aw/AhoSU86}. Due to the resource efficiency usually pursued with compilers, this technique is coarse enough to be extremely efficient. At the same time, the obtained abstraction is still detailed enough for basic analyses, as demonstrated by the aforementioned examples. Building on the program's CFG and data-flow analysis, we describe a technique to identify \emph{loop counters}, i.e.\ variables whose values change in well-behaved increments during each iteration of a loop. Additionally, we describe syntactic patterns for a class of condition expressions that guard control flow exiting (and thus terminating) the loop. Expressions in this class have the property that -- using the increment values obtained for loop counters before -- we can determine if they will at some point during program execution direct control flow out of the loop, thus proving termination. We call the class of loops for which such a termination proof using minimal information is feasible \emph{syntactically terminating loops}.
+
+To evaluate our classification, we compare experimental results of the classes assigned by our implementation \sloopy{} with results obtained from \loopus{} \cite{DBLP:conf/sas/ZulegerGSV11}, a tool for automated bound computation. We found (c.f.\ \Cref{ch:experimental}) \loopus{} to fully agree on the bounded cases we describe, which make up about one fourth of loops in our benchmarks. However, \loopus{} succeeds to compute a bound on more than half -- on one benchmark up to 94\% -- of loops found in the benchmarks. Consequently, our analysis should also identify these cases.
+
+We systematically weaken syntactic termination criteria along three dimensions to obtain the family of \emph{simple loops}. Intuitively, these weakenings introduce some leeway where the locality of our analysis restricts the ability to obtain a syntactic termination proof. At the same time, simple loops still capture the termination-related properties of syntactically terminating loops well. Depending on the strength of the applied weakenings, we obtain different simple loop classes within the simple loop family. The dimensions along which we perform the weakenings are structured hierarchically, thus inducing an order relation that allows us to identify weaker and stronger classes.
+
+Finally, we present experimental results, again comparing loops classified as simple loops by our tool \sloopy{} with results obtained from \loopus{}. These results show that the various simple loop classes indeed capture the difficulty of program analysis and comprise a majority of loops in our benchmarks.
+
+\section{Contributions}
+
+\begin{itemize}
+    \item We show a termination proof by minimal information and define the class of syntactically terminating loops.
+    \item We systematically weaken syntactic termination criteria to obtain simple loops, a loop pattern commonly used by programmers.
+    \item We show that simple loops indeed represent the majority of loops in our benchmarks.
+    \item We show the various simple loop classes indeed capture the difficulty of automated program analysis.
+    \item We sketch research directions and further applications of loop patterns.
+\end{itemize}

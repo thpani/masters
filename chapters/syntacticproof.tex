@@ -1,0 +1,413 @@
+One class of loops that an automated tool should definitely be able to handle, are those that can be shown to terminate relatively easily, employing light-weight techniques such as data-flow analysis. This class should then be regarded as the base case any tool must handle, the amount of such trivial cases in benchmarks reported, and deviations from an prior established value be acknowledged and discussed.
+
+\section{Motivating Example}
+
+Our syntactic termination proof is based on the observation that many loops alter a set of variables during each iteration. These variables are then compared against a fixed (loop-invariant) bound to decide termination.
+
+\begin{listing}[h]
+    \cfile{figures/posneg.c}
+    \caption{Motivating example for the syntactic termination proof.}
+    \label{fig:listing_posneg}
+\end{listing}
+
+Consider the program shown in \Cref{fig:listing_posneg}: We can show the loop to terminate in a straight-forward manner: The value of \texttt{i} is changed by the loop, while the value of \texttt{N} is fixed. The loop's condition induces a predicate $P(i): i < N$. If $P(i)$ evaluates to false, the loop terminates. We show that executing the loop, $P(i)$ eventually evaluates to false: The domain of $P$ can be partitioned into two intervals $[-\infty, N)$ and $[N, \infty]$, for which $P(i)$ evaluates to true or false, respectively (c.f. \Cref{fig:i_lt_N}). As \texttt{i} is incremented during each iteration, we eventually have $i \in [N, \infty]$, and thus $\neg P(i)$ and the loop terminates.
+
+\begin{figure}[h]
+\begin{tikzpicture}
+    \begin{axis}[
+        y=1.2cm,
+        axis x line=middle, 
+        axis y line=left, 
+        xlabel=$i$,
+        ymin=3.5,ymax=5,
+        xtick={42},
+        xticklabels={$N$},
+        ytick={0.5,1,2.5,3,4,4.5},
+        yticklabels={\false,\true,\false,\true,\false,\true}
+        ]
+    \addplot[] table {
+        30 4.5
+        42 4.5
+         42 4
+         50 4
+     } node [above left, xshift=1ex] {$i < N$};
+    \end{axis}
+\end{tikzpicture}
+\caption{$i < N$}
+\label{fig:i_lt_N}
+\end{figure}
+
+The following sections discuss the analysis of syntactic loop termination in detail: \Cref{sec:dfa} introduces data-flow analysis, the framework our classification is based on. \Cref{sec:acc_inc} describes how the increment of a variable is determined, \Cref{sec:term_pred} introduces predicates which eventually hold given this increment, and \Cref{sec:control_flow} defines the control flow of loops where such predicates lead to termination.
+
+\section{Data-Flow Analysis}
+\label{sec:dfa}
+
+We will make heavy use of data-flow analysis in this chapter, therefore we give an introduction in this section. Data-flow analysis is a well-known technique for static analysis introduced by \citeauthor{DBLP:conf/popl/Kildall73} \cite{DBLP:conf/popl/Kildall73}, often used by compilers to obtain information used in optimizations \cite{DBLP:books/aw/AhoSU86}.
+
+\subsection{Data-Flow Analysis Frameworks}
+
+\emph{Data-flow values} describe sets of states that may be observed at a program point (e.g., the set of definitions reaching that point). Let $\textsc{In}[B]$ and $\textsc{Out}[B]$ be the data-flow values just before and after executing basic block $B$.
+
+A family of \emph{transfer functions} $F_B = \{f'_B, f''_B, \dots, f^n_B \}$ relates \textsc{In} and \textsc{Out} of block $B$, depending on the direction of information flow: For forward data-flow problems, we have $\textsc{Out}[B] = f^i_B(\textsc{In}[B])$, while for backward data-flow problems we have $\textsc{In}[B] = f^i_B(\textsc{Out}[B])$.
+
+The \emph{meet operator} $\wedge$ combines data-flow values from multiple branches: In a forward data-flow problem, \textsc{In} for a block $B$ is computed from $\textsc{Out}$ of its predecessors:
+\[
+    \textsc{In}[B] = \bigwedge\limits_{P\, \in\, preds(B)} \textsc{Out}[P]
+\]
+while in backward data-flow problems, \textsc{Out} for $B$ is computed from \textsc{In} of the successors:
+\[
+    \textsc{Out}[B] = \bigwedge\limits_{S\, \in\, succs(B)} \textsc{In}[S]
+\]
+
+The \emph{data-flow problem} is to compute the values of \textsc{In} and \textsc{Out} for all basic blocks in the flow graph. Data-flow problems are commonly described as \emph{data-flow analysis frameworks}:
+
+\begin{definition}[Semilattice, meet-semilattice]
+    A \emph{semilattice} is an algebraic structure $\langle S, * \rangle$, where $S$ is a set and $*$ a binary operation, such that for all $x,y,z \in S$
+    
+    \begin{align}
+        x * (y * z) = (x * y) * z &\text{ (associativity)}\\
+        x * y = y * x &\text{ (commutativity)}\\
+        x * x = x &\text{ (idempotency)}
+    \end{align}
+    
+    Given a partially ordered set $P$ in which each pair of elements $x, y$ has a greatest lower bound $glb(x, y)$, define $x \wedge y = glb(x, y)$. Then, $\langle P, \wedge \rangle$ is a semilattice -- we call $\wedge$ the \emph{meet operator} and $\langle P, \wedge \rangle$ a \emph{meet-semilattice}.
+\end{definition}
+
+\begin{definition}[Data-flow analysis framework]
+A \emph{data-flow analysis framework} is a tuple \mathtup{S, \wedge, D, F}, where $\langle S, \wedge \rangle$ is a meet-semilattice, $D \in \{ \textsf{forward}, \textsf{backward} \}$ the direction of in\-for\-ma\-tion-flow, and $F$ a family of transfer functions $f^i: S \rightarrow S$. Two families of frameworks are particularly useful: \emph{Monotone frameworks}, for which $\forall f \in F \ldotp \left(x \le y \rightarrow f(x) \le f(y)\right)$, and \emph{distributive frameworks}, for which $\forall f \in F \ldotp \left(f(x \wedge y) = f(x) \wedge f(y)\right)$.
+\end{definition}
+
+\subsection{Solving Data-Flow Problems}
+
+Without loss of generality, we assume forward-flowing data-flow frameworks below. If a solution to the data-flow problem exists, it can be computed by a fixed point iteration as shown in \Cref{alg:itdataflow}: First, \textsc{Out} of each block is initialized to a special value $\top$. In the fixed point iteration, the meet operator $\wedge$ as well as transfer functions $f^i_B$ are used to propagate information and compute updated data-flow values. If the algorithm converges, it computes a solution to the data-flow problem.
+
+An optimized version only considers blocks that need (re-)computation in each iterative step. As these blocks are kept in a worklist, this approach is commonly referred to as \emph{worklist algorithm}.
+
+\begin{algorithm}[h]
+    \begin{algorithmic}
+        \FOR{each basic block $B$}
+            \STATE $\textsc{Out}[B] = \top$
+        \ENDFOR
+        \WHILE{any \textsc{Out} changes}
+            \FOR{each basic block $B \ne \entry$}
+                \STATE $\textsc{In}[B] = \bigwedge_{P \,\in\, preds(B)} \textsc{Out}[P]$
+                \STATE $\textsc{Out}[B] = f^i_B(\textsc{In}[B])$
+            \ENDFOR
+        \ENDWHILE
+    \end{algorithmic}
+    \caption{Iterative algorithm for forward data-flow problems \cite{DBLP:books/aw/AhoSU86}.}
+    \label{alg:itdataflow}
+\end{algorithm}
+
+\subsubsection{Convergence}
+
+Convergence of the fixed point computation for a framework $\langle S, \wedge, D, F \rangle$ is usually proven by showing that $\langle S, \wedge \rangle$ is of finite height and the family of transfer functions $F$ is monotonic:
+
+As \Cref{alg:itdataflow} shows, initially $\textsc{Out}[B] = \top$ for all basic blocks $B$. In the fixed point iteration, $\textsc{In}[B]$ meets over all $\textsc{Out}[P]$ of $B$'s predecessors $P$, i.e. $\textsc{In}[B]$ is the greatest lower bound of all $\textsc{Out}[P]$. In monotone frameworks, the old data-flow value \textsc{Out} must be less or equal to the updated value $\textsc{Out}'$: $\textsc{Out}[B] \le \textsc{Out}'[B]$. Furthermore, if the semilattice is of finite height, \Cref{alg:itdataflow} must eventually reach a fixed point and thus terminate. By construction, the computed solution is the greatest fixed point.
+
+\subsubsection{Solution}
+
+Obviously, the obtained solution (greatest fixed point) can be different from the ideal solution: data-flow analysis considers a superset of possible executions, by treating any path as feasible. We discuss guarantees on the obtained solution in terms of the ideal solution:
+
+Let $P: B_1, \dots, B_n$ be a path from \entry{} to $B_n$, and $f_P$ the composition of transfer functions $f_{B_1}, \dots f_{B_{n-1}}$. Then the ideal solution is given by:
+
+\[
+    \textsc{In}_{ideal}[B] = \bigwedge\limits_{P \ldotp P \text{ is a feasible path from \entry{}  to } B} f_P(\top)
+\]
+
+By considering all (feasible \emph{and} infeasible) paths as the data-flow abstraction does, we obtain a meet-over-paths solution
+
+\[
+    \textsc{In}_{mop}[B] = \bigwedge\limits_{P \ldotp P \text{ is a path from \entry{} to } B} f_P(\top)
+\]
+
+Meeting a superset of paths, the meet-over-paths solution cannot be greater than the ideal, i.e. $\textsc{In}_{mop}[B] \le \textsc{In}_{ideal}[B]$.
+
+Additionally, the iterative algorithm applies the meet operator $\wedge$ early. Whereas the meet-over-paths solution applies meet over all paths (which are infinite in the presence of loops), the iterative algorithm applies meet over finitely many incoming branches. By induction over the path length, one can show that for monotone frameworks $\textsc{In}[B] \le \textsc{In}_{mop}[B] \le \textsc{In}_{ideal}[B]$. For distributive frameworks, $\textsc{In}[B] = \textsc{In}_{mop}[B]$, because function application distributes over $\wedge$.
+
+\section{Accumulated Increment}
+\label{sec:acc_inc}
+
+For the syntactic termination proof, it is necessary to determine the possible values by which a variable \verb!i! is updated in one iteration of a loop. We call this set of values the \emph{accumulated increment}. We need to consider consecutive assignments to the same variable \verb!i! along one path and fold them into a single value. Additionally, different paths of execution might lead to different values for the accumulated increment. For example, in \Cref{fig:listing_posneg} the accumulated increment \verb!i! is 1 if execution takes the \verb!if! branch, and 2 if execution takes the \verb!else! branch. We restrict our analysis to constant increments.
+
+There are two cases in which we cannot establish a constant increment:
+
+\begin{enumerate}
+    \item The increment is non-constant, for example if the increment is symbolic (e.g.\ \verb!i += x!). In this case, we cannot fold the symbolic increment into a constant value.
+    \item If the loop contains a nested loop, the accumulated increment of a variable whose value changes in this loop is not uniquely defined along the non-simple paths introduced by the nested loop.
+\end{enumerate}
+
+\begin{definition}[Accumulated increment along a path]
+We use unprimed ($i$) and primed ($i'$) versions to refer to variable \verb!i!'s value just before and just after one iteration of the loop. The accumulated increment of variable \verb!i! along a path $p$ is defined as 
+\[
+    accinc_p(\verb!i!) =
+        \begin{cases}
+        i' - i & \text{if } i' \text{ is uniquely defined and } i' - i \text{ is constant}\\
+        \mathbb{Z} & \text{otherwise}
+        \end{cases}
+\]
+Intuitively, if we cannot determine a constant increment, we have to assume \texttt{i} is incremented by any possible value in $\mathbb{Z}$.
+
+\end{definition}
+\begin{definition}[Accumulated increment of a single iteration]
+    The accumulated increment of an iteration of loop $L$ then, is the accumulated increment along all possible paths, i.e.
+    
+    \[ AccIncs_L(\verb!i!) = \bigcup \limits_{p \,\in\, paths(L)} accinc_p(\verb!i!) \]
+\end{definition}
+
+\subsection{Implementation}
+
+Computation of the accumulated increment can be reduced to solving a standard data-flow problem for the framework $\langle S, \cup, \textsf{forward}, F \rangle$, where
+
+\begin{align}
+    S &= \mathcal{P}(\mathbb{Z}) \\
+    F(B) &= \begin{cases}
+        f_{\header}(X) = \{ 0 \} \\
+        f_{B \ne \header}(X) = \{ x + accinc_B(i) \mid x \in X \} \label{eq:accinc_func_fam}
+    \end{cases}
+\end{align}
+
+\begin{theorem}
+    If solving the data-flow equations for the given framework on a natural loop's flow graph $L$ for variable $i$ computes a greatest fixed point, the accumulated increment $AccIncs_L(i)$ is given as data flow value in $\textsc{In}[\header]$. $\textsc{In}[\header]$ is equal to the meet-over-paths solution.
+\end{theorem}
+
+\begin{proof}
+    We show $\langle S', \cup, F' \rangle$ is a distributive framework: As the boundary transfer function $f'_{\header}$ is constant, it is trivially distributive. It remains to show distributivity of $f_B'$:
+
+    \begin{align}
+        f_B'(X \cup Y) &= f_B'(X) \cup f_B'(Y) \\
+        f_B'(\{z \mid z \in X \cup Y\}) &= f_B'(\{x \mid x \in X\}) \cup f_B'(\{y \mid y \in Y\}) \\
+        \{z + a \mid z \in X \cup Y\} &= \{x + a \mid x \in X\} \cup \{y + a \mid y \in Y\} \\
+        \{z + a \mid z \in X \cup Y\} &= \{z + a \mid z \in X \cup Y\} \text{ for some increment } a \in \mathbb{Z}
+    \end{align}
+\end{proof}
+
+Note that using the family of transfer functions $F$ given in \Cref{eq:accinc_func_fam}, the worklist algorithm does not converge in the presence of cycles (nested loops) $p$ that perform non-zero increments $x \in accinc_p(i), x \ne 0$ on $i$. More formally, the semilattice $\langle S, \cup \rangle$ is of infinite height.
+
+We describe an optimization that computes the data-flow solution in two forward passes through the CFG and always terminates: We start by traversing the natural loop's CFG from \entry{} using a depth-first strategy, initialize each basic block $B$ with the accumulated increment $accinc_b(i)$ of variable $i$ along the singleton path $b$ of $B$. At the same time, we keep track of the accumulated increment $accinc_p(i)$ along the currently explored path $p$ from \entry{} to the currently explored node. If we reach an already explored block $n$ (i.e.\ we encountered the back edge $t \rightarrow n$ of a nested loop), before backtracking we compare its already assigned data-flow value $accinc_n(i)$ with the new data-flow value $accinc_p(i)$. If $accinc_n(i) \ne accinc_p(i)$, we update the data-flow value of $n$ to $\mathbb{Z}$. In a second pass, we forward propagate the now initialized values from \entry{} through the CFG by combining incoming values with the meet operator $\cup$ and computing the pointwise sum of the incoming data-flow value and the current block's initial data-flow value from the first pass as defined in \Cref{eq:accinc_func_fam}.
+
+\section{Terminating Predicates}
+\label{sec:term_pred}
+
+In this section, we describe the predicates for which we can show syntactic termination, by means of the predicate's \emph{representing function}:
+
+\begin{definition}[Representing function, monotonicity, eventually \true{} predicates]
+    The representing function $f_P$ of a predicate $P$ with the same domain takes, for each domain value, the value 0 if the predicate holds, and 1 if the predicate evaluates to false, i.e.\ $P(X) \Leftrightarrow f_P(X) = 0$. A predicate $P$ is monotonically increasing (decreasing) if its representing function $f_P$ is monotonically increasing (decreasing). A predicate $P$ is eventually \true{} if its representing function $f_P$ is eventually 0, i.e.\ if $\exists x \,.\, f_P(x) = 0$. These definitions are inspired by \cite{DBLP:conf/cav/KroeningW11}.
+\end{definition}
+
+\begin{figure}
+\begin{tikzpicture}
+    \begin{axis}[
+        y=0.8cm,
+        axis x line=bottom,
+        axis y line=left, 
+        xlabel=$i$,
+        xlabel style={at={(current axis.south east)},yshift=3ex},
+        ymin=-2,ymax=5,
+        xtick={42},
+        xticklabels={$N$},
+        ytick={-1,-0.5,0.5,1,2,2.5,3.5,4},
+        yticklabels={\false,\true,\false,\true,\false,\true,\false,\true}
+        ]
+    \addplot[] table {
+        30 4
+        42 4
+        42 3.5
+         50 3.5
+     } node [above left, xshift=1ex] {$p: i < N$};
+    \addplot[] table {
+        30 2
+        42 2
+        42 2.5
+        50 2.5
+     } node [above left, xshift=1ex] {$q: i \ge N$};
+    \addplot[] table {
+         30 1
+         42 1
+         42 0.5
+         43 0.5
+         43 1
+         50 1
+     } node [above left, xshift=1ex] {$r: i \ne N$};
+    \addplot[] table {
+        30 -1
+        42 -1
+        42 -0.5
+        43 -0.5
+         43 -1
+         50 -1
+     } node [above left, xshift=1ex] {$s: i = N$};
+    \end{axis}
+\end{tikzpicture}
+\caption{Monotonic ($p, q$) and eventually \true{} ($p, q, r, s$) predicates.}
+\label{fig:monotonic_preds}
+\end{figure}
+
+\begin{definition}[Exit block, exit predicate]
+    Let $L$ be a natural loop's flow graph, $(B, \exit)$ an edge in $L$, and $P: assume(B, \exit)$ the edge's label. We call $B$ an \emph{exit block} and $P$ an \emph{exit predicate}.
+\end{definition}
+
+Depending on the predicate's form, we describe four strategies for showing that the predicate is eventually true. These strategies cover a subset of all eventually true predicates, and where chosen to represent cases that in our experience occur in practice:
+
+\begin{description}
+    \item[Escape] The predicate $P(i)$ holds iff $i$ does not take a special value $N$ (e.g. $i \ne N$). If $i$ "escapes" $N$, $P$ is eventually true.
+    \item[Search] The predicate $P(i)$ holds iff $i$ takes a special value $N$ (e.g. $i = N$). If $i$ "searches" and eventually "finds" $N$, $P$ is eventually true.
+    \item[Increase] The predicate $P(i)$ holds iff $i$ takes values from an interval $[N,\infty]$ (e.g. $i \ge N$). If $i$ increases enough to enter this interval, $P$ is eventually true.
+    \item[Decrease] The predicate $P(i)$ holds iff $i$ takes values from an interval $[-\infty,N]$ (e.g. $i \le N$). If $i$ decreases enough to enter this interval, $P$ is eventually true.
+\end{description}
+
+\Cref{fig:monotonic_preds} illustrates these strategies, and \Cref{tab:termstrat} contains formal definitions of the strategies just introduced in terms of the predicate's representing function. We call predicates whose representing function takes such a form \emph{well-formed}:
+
+\begin{definition}[Well-formed predicate]
+    Let $L$ be a natural loop's flow graph, $(B, \exit)$ an edge in $L$, and $P: assume(B, \exit)$ the edge's label. We call $P$ a \emph{well-formed predicate} if and only if its representing function $f_P$ matches one of the forms in \Cref{tab:termstrat}.
+    \label{def:wpred}
+\end{definition}
+
+\begin{table}
+\begin{tabular}{ll}
+    Escape   & $f_P$ has a single non-root $\exists ! x . f_P(x) = 1$.     \\
+    Search   & $f_P$ has a single root $\exists ! x . f_P(x) = 0$. \\
+    Increase & $f_P$ is monotonically decreasing and eventually true.     \\
+    Decrease & $f_P$ is monotonically increasing and eventually true ($f_P$ grows from 0).     \\
+\end{tabular}
+\caption{Mapping of representing function $f_P$'s characteristics to strategies for showing an exit predicate $P$ is eventually true.}
+\label{tab:termstrat}
+\end{table}
+
+Given a predicate's representing function $f_P(i)$, we first determine the appropriate strategy as given in \Cref{tab:termstrat}. For the obtained strategy, we need to consider updates on $i$ in loop $L$ to decide if the strategy's conditions hold: We use the accumulated increment $AccIncs_L(i)$ from \Cref{sec:acc_inc} to give sufficient conditions for an exit predicate $P(i)$'s eventually evaluating to true for a given loop $L$:
+
+\begin{table}
+\begin{tabular}{ll}
+    Escape   & $0 \not\in AccIncs_L(i)$ \\
+    Search   & $AccIncs_L(i) = \{ 1 \}$ or $AccIncs_L(i) = \{ -1 \}$              \\
+    Increase & $\forall inc \in AccIncs_L(i) \,.\, inc > 0$                          \\
+    Decrease & $\forall inc \in AccIncs_L(i) \,.\, inc < 0$                          \\
+\end{tabular}
+\caption{Sufficient conditions for an exit predicate's terminating the loop.}
+\label{tab:termpred}
+\end{table}
+
+Intuitively, the conditions all describe scenarios under which the representing function $f_P$ eventually takes the value 0: For \textbf{escape}, either $f_P(i)$ is already 0, or any non-zero increment makes it 0 in the next iteration. The condition ensures such a non-zero increment exists along all paths of the loop. For \textbf{search}, either $f_P(i)$ already 0, or $i$ eventually takes all values in its type's range. The condition ensures all increments are integer successor functions in a single direction. Assuming\footnote{An in-depth discussion of assumptions made is given below.} two's complement integer wrap-around on overflow, $i$ steps through all values in its type's range. For \textbf{increase} (\textbf{decrease}), either $f_P(i)$ already 0, or $i$ is incremented (decremented) on all paths. The condition ensures all updates to $i$ along all paths are non-zero increments (decrements).
+
+\begin{definition}[Terminating block, terminating predicate]
+    Let $P: assume(B, \exit)$ be an exit predicate for which the condition given by \Cref{tab:termstrat,tab:termpred} hold. We call $B$ a \emph{terminating block} and $P$ a \emph{terminating predicate}.
+    \label{def:tpred}
+\end{definition}
+
+\subsection{Implementation}
+Finding the set of exit predicates $P: assume(B, \exit)$ for a natural loop $L$ amounts to enumerating the predecessors of \exit{}. The predicate is given as C language expression on the branch statement of $B$. We translate this C expression to a Z3 expression \cite{DBLP:conf/tacas/MouraB08} and use Z3's theory simplifiers to obtain a normal form. We then perform pattern matching on the obtained normal form to choose a strategy according to \Cref{tab:termstrat}.
+
+At the moment, our analysis only considers linear inequalities in a single variable $i$. Any other subexpressions must be loop-invariant. This allows us to handle condition expressions with common comparison operators of the C programming language as top-level connective, i.e.\ the equality operators \texttt{==} and \texttt{!=} and relational operators \texttt{<}, \texttt{>}, \texttt{<=}, \texttt{>=}.
+
+It is important to note that we do not employ Z3 as SMT solver. We merely take advantage of its (mostly syntactic) expression rewriting to obtain a normal form for pattern matching.
+
+\subsection{Assumptions}
+\label{sec:assumptions}
+
+Our analysis makes a number of assumptions to determine eventual truth of predicates:
+
+\begin{enumerate}
+    \item Due to the locality of our analysis, we assume the absence of aliasing and impure functions.
+    \item The C standard leaves pointer arithmetic undefined if operands and/or the result don't point into or just beyond the same array object \cite[6.5.6]{ISO:2011:IIIb}. We assume the result of pointer arithmetic is always defined.
+    \item As another subtlety, the C standard does not define overflow on signed integer types \cite[6.5.6]{ISO:2011:IIIb}. The \textbf{search} strategy relies on covering the whole value range, thus we have to assume two's complement wrap-around behavior on overflow for \textbf{search} predicates over signed integer types.
+        
+        We may also prove termination of additional \textbf{increase}/\textbf{decrease} predicates under this assumption, e.g.\ in the loop \mint{c}!for (unsigned i = 42; i < N; i--) ;!
+        
+        However, if we prove \textbf{increase}/\textbf{decrease} predicates over \emph{signed} integers using this assumption, we probably\footnote{The only exception is if the compiler assumes two's complement signed integer overflow as well, which may be enabled in Clang or GCC using the -fwrapv flag.} discovered a bug \cite{DBLP:conf/icse/DietzLRA12}. We describe one such bug we encountered during experimental evaluation in \Cref{ch:experimental}.
+    \item For any strategy other than \textbf{escape}, we assume that $i$ in an exit predicate $P(i): E(i) \circ N$, where $E(i)$ is an expression in $i$ and $\circ \in \{ <, \le, \ge, > \}$, is not prevented by its (finite integer) type to enter the required interval to make $P(i)$ evaluate to true. As both $E(i)$ and $N$ are expressions, we cannot determine their ranges by merely syntactic means.
+        \begin{example}
+        Consider the program shown in \Cref{lst:typerange}: Depending on the values assigned to \verb!d! and \verb!N!, the loop may or may not terminate. Type information itself is not sufficient, as addition of \verb!d! lifts the left hand side type to 32-bit integers, however this expression's range is still influenced and limited by \verb!i!'s 8-bit type.
+        \end{example}
+    \item For strict inequalities $P(i): i < N$ ($i > N$), $N$ must evaluate to less (more) than its type's minimum (maximum) value. Otherwise, $P$ never evaluates to true for any $i$.
+\end{enumerate}
+
+\begin{listing}[h]
+\begin{ccode}
+int32_t d = /* ... */,
+        N = /* ... */;
+for (int8_t i = 0; i + d < N; i++);
+\end{ccode}
+\caption{Loop terminating under assumptions on expression ranges.}
+\label{lst:typerange}
+\end{listing}
+
+\section{Control Flow Constraints}
+\label{sec:control_flow}
+
+Having defined the terminating predicates, we need to make sure that a terminating predicate $P: assume(B, \exit)$ is actually evaluated (i.e.\ block $B$ is executed) when it evaluates to true. \Cref{lst:nonterm1} illustrates that this is not always the case: while there is a terminating predicate $P: i = 42$, it is never evaluated when $i = 42$. Hence, line~\ref{ln:unreachable1} is never executed – the loop does not terminate.
+
+\begin{listing}[h]
+\begin{ccode*}{mathescape}
+int i = 0;
+while (1) {
+    if (i < 42) {
+        if (i == 42) {  // terminating predicate $P: i = 42$
+            break;      // unreachable $\label{ln:unreachable1}$
+        }
+    }
+    i++;
+}
+\end{ccode*}
+\caption{Terminating predicate $P$ does not terminate the loop.}
+\label{lst:nonterm1}
+\end{listing}
+
+As determining feasibility of a loop's terminating predicates is in itself a hard problem, we restrict our analysis to a case in which we can ensure evaluation of the predicate:
+
+\begin{theorem}
+    Given a terminating predicate $P: assume(B, \exit)$ of a natural loop $L$, $P$ terminates $L$ if its associated terminating block $B$ lies on each path through the loop.
+    \label{thm:term}
+\end{theorem}
+
+\begin{definition}[Syntactically terminating loop]
+    Given a natural loop $L$, we call $L$ \emph{syntactically terminating} $L \in \mathcal{L}^{ST}$ if and only if there exists a terminating predicate $P: assume(B, \exit)$ of $L$ and its associated terminating block $B$ lies on each path through the loop.
+\end{definition}
+
+\subsection{Implementation}
+The condition in \Cref{thm:term} may be decided by solving the data-flow framework \mathalg{\mathbb{N}, \min, \textsf{forward}, F}, where
+
+\[
+    F(B) = \begin{cases}
+        f_{\header}(x) = 0 \\
+        f_{B \ne \header}(x) = \begin{cases}
+            x+1 & |succs(B)| > 0 \\
+            x & \text{otherwise}
+        \end{cases}
+    \end{cases}
+\]
+
+Intuitively, the analysis assigns to each basic block the number of open (un-joined) branches. Any basic block $B$ of natural loop $L$ with $\textsc{Out}[B] = 0$ lies on all paths through $L$. For a given loop, height of the semilattice can be restricted to the maximum number of open branches $M$ along any path, with $\top = M, \bot = 0$. $\langle \mathbb{N}, \min, F \rangle$ is a distributive framework, because $\min\{x+1,y+1\} = \min\{x,y\}+1$.
+
+\section{Strengthening Syntactic Termination}
+
+So far, we have only considered an isolated notion of loop termination: If execution starts from \entry{}, any path of execution reaches \exit{}. A stronger notion which is essential for symbolic bound computation considers a loop to terminate only if the number of executions of the loop's paths is bounded. \Cref{lst:finitepaths} shows an example where the two notions differ: while the nested loop itself terminates whenever executed, the number of executions of the nested loop is infinite.
+
+\begin{listing}
+\begin{ccode}
+while (1) {
+    for (unsigned i = 0; i < 42; i++) {
+    }
+}
+\end{ccode}
+\caption{An unbounded loop.}
+\label{lst:finitepaths}
+\end{listing}
+
+We can strengthen the notion of syntactic termination to accommodate this property:
+
+\begin{definition}[Syntactically bounded loop]
+    Given a natural loop $L \in \mathcal{L}^{ST}$, we call $L$ \emph{syntactically bounded} $L \in \mathcal{L}^{SB}$ if and only if $L$ itself and all of its nesting (outer) loops are in $\mathcal{L}^{ST}$.
+\end{definition}
+
+\section{Loop Counters}
+\label{sec:loop_counters}
+
+We can use the previous definition of terminating predicates to define \emph{loop counter variables}:
+
+\begin{definition}[Loop counter variable]
+    Given a terminating predicate $P(i): assume(B, \exit)$ of a natural loop $L$, we call $i$ a \emph{loop counter variable} of $L$.
+\end{definition}
+
+Note that there may be more than one terminating block for whose terminating predicate we can obtain a syntactic termination proof. Thus, the set of loop counters $LoopCounters(L)$ contains any $i$ for which a termination proof may be obtained. In other words, in order to build $LoopCounters(L)$, we need to find \emph{all} proofs, not just a single one that is required to show termination.
+
+

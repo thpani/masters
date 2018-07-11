@@ -1,0 +1,5 @@
+benchmark finp proved simple any
+cBench 950 1565 2671 4250
+coreutils 253 346 498 1027
+SPEC 3334 6052 9995 15437
+WCET 114 143 214 262
